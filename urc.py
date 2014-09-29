@@ -662,7 +662,7 @@ class URCD:
                             data = data[:0-_SIG_SIZE]
                             break
                         except Exception as e:
-                            self.log.debug'not key {} because %s'.format(key) % e)
+                            self.log.debug('not key {} because {}'.format(key, e))
                             continue
 
                 self._urc_cache.add(raw)
