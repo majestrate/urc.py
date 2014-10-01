@@ -517,7 +517,7 @@ class IRCD:
         inject_log(self)
 
     def handle_control(self, con, msg):
-        if self.auth.connection_authed(con)):
+        if self.auth.connection_authed(con):
             asyncio.async(self.controller.handle(con, msg))
         else:
             asyncio.async(self.auth.handle(con, msg))
