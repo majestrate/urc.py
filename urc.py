@@ -9,7 +9,7 @@
 import binascii
 import struct
 import asyncio
-from random import randrange, Random
+from random import randrange, Random, randint
 import time
 import logging
 import os
@@ -40,9 +40,13 @@ _RE_JOIN_CMD = '^JOIN (%s)' % _RE_CHAN
 _RE_JOIN_MULTI_CMD = '^JOIN (.+)' 
 _RE_PART_CMD = '^PART (%s) :(.+)$' % _RE_CHAN
 _RE_QUIT_CMD = '^QUIT (.+)$'
-_RE_LIST_CMD = '^LIST'
+_RE_LIST_CMD = '^(LIST)'
 _RE_PING_CMD = '^PING (.*)$' 
-
+_RE_PONG_CMD = '^PONG (.*)$' 
+_RE_MODE_CMD = '^MODE (%s)?(.+)$' % _RE_CHAN
+_RE_WHO_CMD = '^WHO (%s)$' % _RE_CHAN
+_RE_AWAY_ON_CMD = '^AWAY (.+)$'
+_RE_AWAY_OFF_CMD = '^(AWAY) ?$'
 # -- end lameass regexp block
 
 # -- being crypto stuff
@@ -79,19 +83,24 @@ def pubkey2bin(pk):
 
 # -- begin irc functions
 
-def _irc_re_parse(regex, line):
-    m = re.match(regex, line)
-    if m:
-        return m.groups()
-
 
 def irc_is_chan(chan):
+    """
+    return true if something is a channel name
+    """
     for p in _CHAN_PREFIX:
         if chan[0] == p:
             return True
     return False
 
-irc_parse_nick_user_serv = lambda line: _irc_re_parse(_RE_SRC_CMD, line)
+def _irc_re_parse(regex, line):
+    m = re.match(regex, line)
+    if m:
+        return m.groups()
+
+irc_parse_away_on = lambda line : _irc_re_parse(_RE_AWAY_ON_CMD, line)
+irc_parse_away_off = lambda line : _irc_re_parse(_RE_AWAY_OFF_CMD, line)
+irc_parse_nick_user_serv = lambda line : _irc_re_parse(_RE_SRC_CMD, line)
 irc_parse_channel_name = lambda line : _irc_re_parse(_RE_CHAN, line)
 irc_parse_nick = lambda line : _irc_re_parse(_RE_NICK_CMD, line)
 irc_parse_user = lambda line : _irc_re_parse(_RE_USER_CMD, line)
@@ -101,6 +110,10 @@ irc_parse_multi_join = lambda line : _irc_re_parse(_RE_JOIN_MULTI_CMD, line)
 irc_parse_part = lambda line : _irc_re_parse(_RE_PART_CMD, line)
 irc_parse_quit = lambda line : _irc_re_parse(_RE_QUIT_CMD, line)
 irc_parse_ping = lambda line : _irc_re_parse(_RE_PING_CMD, line)
+irc_parse_pong = lambda line : _irc_re_parse(_RE_PONG_CMD, line)
+irc_parse_list = lambda line : _irc_re_parse(_RE_LIST_CMD, line)
+irc_parse_mode = lambda line : _irc_re_parse(_RE_MODE_CMD, line)
+irc_parse_who = lambda line : _irc_re_parse(_RE_WHO_CMD, line)
 
 def irc_greet(serv, nick, user, motd):
     """
@@ -112,7 +125,7 @@ def irc_greet(serv, nick, user, motd):
             ('002', ':{}!{}@{}'.format(nick,user,serv)),
             ('003', ':{}'.format(serv)),
             ('004', '{} 0.0 :+'.format(serv)),
-            ('005', 'NETWORK={} CHANTYPES=#&!+ CASEMAPPING=ascii '
+            ('005', 'NETWORK=urc.{} CHANTYPES=#&!+ CASEMAPPING=ascii '.format(serv)+
              'CHANLIMIT=25 NICKLEN=25 TOPICLEN=128 CHANNELLEN=16 COLOUR=1 UNICODE=1 PRESENCE=0:')):
         yield ':{} {} {} {}\n'.format(serv, num, nick, msg)
     yield ':{} 254 {} 25 :CHANNEL(s)\n'.format(serv, nick)
@@ -156,17 +169,6 @@ def filter_urcline(string, filler=''):
         string = string.replace(bad, filler)
     return string
 
-def mk_urcline(src, cmd, dst, msg):
-    """
-    make a raw urcline given source, destination, command and message
-    :return: utf-8 encoded bytes
-    """
-    src = filter_urcline_chars(src).strip()
-    dst = filter_urcline_chars(dst).strip()
-    cmd = filter_urcline_chars(cmd).upper()
-    msg = filter_urcline_chars(msg)
-    return ':{} {} {} :{}\n'.format(src, dst, cmd, msg).encode('utf-8')
-
 def parse_urcline(line):
     """
     return (source, command, destination, message) tuple from URCLINE or None if invalid syntax
@@ -175,7 +177,7 @@ def parse_urcline(line):
     if m:
         return m.groups()
 
-def mk_hubpkt(pktdata, pkttype=0):
+def mk_hubpkt(pktdata, pkttype):
     """
     make urc hub packet
     """
@@ -183,14 +185,19 @@ def mk_hubpkt(pktdata, pkttype=0):
     pktlen = len(pktdata)
     if pkttype == 1:
         pktlen += _SIG_SIZE
-    data += struct.pack('>H', pktlen) # packet length
+    data += struct.pack('!H', pktlen) # packet length
     data += taia96n_now() # timestamp
-    data += struct.pack('<I', pkttype) # packet type
+    data += struct.pack('!B', pkttype) # packet type
+    data += b'\x00\x00\x00'
     data += rand(8) # 64 bit random
     data += pktdata
     return data
 
 class _log:
+    """
+    non native logger
+    """
+
     
     def __init__(self):
         self.debug = self._logit
@@ -211,186 +218,6 @@ def inject_log(obj, native_log=True):
     else:
         log = _log()
     obj.log = log
-
-class urc_hub_connection:
-
-    def __init__(self, urcd, r, w):
-        self.urcd = urcd
-        self.r, self.w = r, w
-        inject_log(self)
-
-    @asyncio.coroutine
-    def get_hub_packet(self):
-        """
-        yield a hub packet tuple , (raw_packet, packet_data)
-        """
-        raw = bytes()
-        data = yield from self.r.readexactly(2)
-        pktlen = struct.unpack('>H', data)[0]
-        raw += data
-        data = yield from self.r.readexactly(12)
-        tsec, tnano = taia96n_parse(data)
-        raw += data
-        data = yield from self.r.readexactly(4)
-        pkttype = struct.unpack('<I', data)[0]
-        raw += data
-        data = yield from self.r.readexactly(8)
-        self.log.debug('read packet len={}'.format(pktlen))
-        raw += data
-        data = yield from self.r.readexactly(pktlen)
-        raw += data
-        self.log.info('data={}'.format([data]))
-        return raw, data, pkttype
-
-    @asyncio.coroutine
-    def send_hub_packet(self,pktdata):
-        """
-        send a hub packet
-        pktdata must be bytes and a valid packet
-        """
-        self.log.info('send packet')
-        self.log.info('write %d bytes' % len(pktdata))
-        self.log.info('write %s' % [pktdata])
-        self.w.write(pktdata)
-        try:
-            yield from self.w.drain()
-        except Exception as e:
-            self.log.error(e)
-            self.urcd._disconnected(self)
-        self.log.info('drained')
-        
-
-class irc_handler:
-    """
-    simple ircd ui logic
-    """
-
-    def __init__(self, urcd, r, w):
-        self.urcd = urcd
-        self.loop = urcd.loop
-        self.r, self.w = r, w
-        self.nick = None
-        self.user = None
-        self.greeted = False
-        self.chans = list()
-        inject_log(self)
-        asyncio.async(self._get_line())
-
-    @asyncio.coroutine
-    def _get_line(self):
-        line = yield from self.r.readline()
-        if len(line) != 0:
-            try:
-                yield from self._handle_line(line)
-            except Exception as e:
-                self.log.error(e)
-                self.urcd._disconnected(self)
-                raise e
-            else:
-                asyncio.async(self._get_line())
-   
-    @asyncio.coroutine
-    def change_nick(self, new_nick):
-        line = ':{}!{}@{} NICK {}\n'.format(self.nick,self.user, self.urcd.name, new_nick)
-        yield from self.send_line(line)
-        self.nick = new_nick
-
-    @asyncio.coroutine
-    def send_line(self, line):
-        """
-        send a single line
-        """
-        self.w.write(line.encode('utf-8'))
-        self.log.debug(' <-- {}'.format(line))
-        yield from self.w.drain() 
-
-    @asyncio.coroutine
-    def _handle_line(self, line):
-        """
-        handle a line from irc client
-        """
-        line = line.decode('utf-8')
-        line = filter_urcline(line)
-        self.log.debug(' --> %s' %[line])
-        _nick = irc_parse_nick(line)
-        _user = irc_parse_user(line)
-        _join = irc_parse_join(line)
-        _joins = irc_parse_multi_join(line)
-        _part = irc_parse_part(line)
-        _quit = irc_parse_quit(line)
-        _privmsg = irc_parse_privmsg(line)
-        _ping = irc_parse_ping(line)
-        
-        # PING
-        if _ping:
-            yield from self.send_line(':{} PONG {}\n'.format(self.urcd.name, _ping[0]))
-        # QUIT
-        if _quit:
-            yield from self.urcd.broadcast(':{}!{}@{} QUIT :quit\n'.format(self.nick, self.user, self.urcd.name))
-            self.w.write_eof()
-            self.w.transport.close()
-            self.urcd._disconnected(self)
-            return
-        # NICK
-        if self.nick is None and _nick is not None:
-            self.nick = _nick[0]
-        elif self.nick is not None and _nick is not None:
-            yield from self.change_nick(_nick[0])
-            
-        # USER
-        if self.user is None and _user is not None:
-            self.user = _user[0]
-        
-        if self.greeted:
-            # JOIN 
-            self.log.debug(_joins)
-            chans = list()
-            if _joins:
-                for chan in _joins[0].split(','):
-                    self.log.debug(chan)
-                    if irc_is_chan(chan):
-                        chans.append(chan)
-                        self.log.debug('multijoin {}'.format(chan))
-            elif _join and _join[0] not in self.chans:
-                chans.append(_join[0])
-
-            for chan in chans:
-                self.log.debug('join {}'.format(chan))
-                if chan in self.chans:
-                    self.log.debug('not joining {}'.format(chan))
-                    continue
-                self.chans.append(chan)
-                line = ':{}!{}@{} JOIN {}\n'.format(self.nick, self.user, self.urcd.name, chan)
-                asyncio.async(self.send_line(line))
-                line = ':{} 353 {} = {} :{}\n'.format(self.urcd.name, self.nick, chan, self.nick)
-                asyncio.async(self.send_line(line))
-                line = ':{} 366 {} {} :RPL_ENDOFNAMES\n'.format(self.urcd.name, self.nick, chan)
-                asyncio.async(self.send_line(line))
-                
-            # PART
-            if _part and _part in self.chans:
-                self.chans.remove(_part)
-                line = ':{}!{}@{} PART {}\n'.format(self.nick, self.user, self.urcd.name, chan)
-                asyncio.async(self.send_line(line))
-            
-            # PRVIMSG
-            if _privmsg:
-                dest, msg = _privmsg
-                line = ':{}!{}@{} PRIVMSG {} :{}\n'.format(self.nick, self.user, 
-                                                         self.urcd.name, dest, msg)
-                chan = dest
-                for irc_user in self.urcd.irc_cons:
-                    self.log.debug(irc_user.nick)                        
-                    self.log.debug(irc_user.chans)
-                    if irc_user.nick != self.nick and chan in irc_user.chans:
-                        asyncio.async(irc_user.send_line(line))
-                    
-                asyncio.async(self.urcd.broadcast(line))
-        else:
-            if self.nick is not None and self.user is not None:
-                for line in irc_greet(self.urcd.name, self.nick, self.user, self.urcd.motd()):
-                    yield from self.send_line(line)
-                self.greeted = True
 
 class _bloom_filter:
     """
@@ -415,6 +242,405 @@ class _bloom_filter:
     def __contains__(self, key):
         return all(self.array[i//8] & (2 ** (i%8)) for i in self.get_probes(key))
 
+class urc_hub_connection:
+
+    def __init__(self, urcd, r, w):
+        self.urcd = urcd
+        self.r, self.w = r, w
+        self._lock = asyncio.Lock()
+        inject_log(self)
+
+    @asyncio.coroutine
+    def get_hub_packet(self):
+        """
+        yield a hub packet tuple , (raw_packet, packet_data, packet_type)
+        """
+        hdr, pktlen, tsec, tnano, pkttype = yield from self._read_hdr()
+        data = yield from self._read_data(pktlen)
+        return hdr + data , data, pkttype
+
+    @asyncio.coroutine
+    def _read_hdr(self):
+        raw = yield from self.r.readexactly(26)
+        pktlen = struct.unpack('!H', raw[:2])[0]
+        self.log.debug('read packet len={}'.format(pktlen))
+        tsec, tnano = taia96n_parse(raw[2:14])
+        self.log.debug('packet time {}'.format(tsec))
+        pkttype = struct.unpack('!BB', raw[14:16])[0]
+        self.log.debug('pkttype={}'.format(pkttype))
+        return raw, pktlen, tsec, tnano, pkttype
+
+    @asyncio.coroutine
+    def _read_data(self, pktlen):
+        data = yield from self.r.readexactly(pktlen)
+        self.log.info('data={}'.format([data]))
+        return data
+
+    def close(self):
+        self.w.transport.close()
+
+    @asyncio.coroutine
+    def send_hub_packet(self,pktdata):
+        """
+        send a hub packet
+        pktdata must be bytes and a valid packet
+        """
+        self.log.info('send packet')
+        self.log.info('write %d bytes' % len(pktdata))
+        self.log.info('write %s' % [pktdata])
+        self.w.write(pktdata)
+        try:
+            data = yield from self.w.drain()
+            self.log.info('drained')
+        except Exception as e:
+            self.log.error(e)
+            self.urcd.disconnected(self)
+        except asyncio.streams.IncompleteReadError:
+            self.log.error('incomplete')
+            self.w.transport.close()
+            self.urcd.disconnected(self)
+
+class irc_handler:
+    """
+    simple ircd ui logic
+    """
+
+    def __init__(self, daemon, r, w):
+        self.daemon = daemon
+        self.loop = daemon.loop
+        self.r, self.w = r, w
+        self.nick = None
+        self.user = None
+        self.ponged = False
+        self._pong = str(randint(100,1000))
+        self.greeted = False
+        self.chans = list()
+        inject_log(self)
+        asyncio.async(self.send_line('PING :{}\n'.format(self._pong)))
+        asyncio.async(self._get_line())
+
+    @asyncio.coroutine
+    def _get_line(self):
+        line = yield from self.r.readline()
+        if len(line) != 0:
+            try:
+                yield from self._handle_line(line)
+            except Exception as e:
+                self.log.error(e)
+                self.daemon.disconnected(self)
+                raise e
+            else:
+                asyncio.async(self._get_line())
+   
+    def change_nick(self, new_nick):
+        if self.daemon.has_nick(new_nick):
+            line = ':{} 433 {} :Nickname in use\n'.format(self.daemon.name, self.nick)
+            asyncio.async(self.send_line(line))
+        else:
+            line = ':{}!{}@{} NICK {}\n'.format(self.nick,self.user, self.daemon.name, new_nick)
+            asyncio.async(self.send_line(line))
+            self.nick = new_nick
+            self.daemon.inform_chans_for_user(self, line)
+
+    @asyncio.coroutine
+    def send_line(self, line):
+        """
+        send a single line
+        """
+        self.w.write(line.encode('utf-8'))
+        self.log.debug(' <-- {}'.format(line))
+        return self.w.drain() 
+
+    @asyncio.coroutine
+    def send_lines(self, lines):
+        """
+        send a single line
+        """
+        _lines = list()
+        for line in lines:
+            _lines.append(line.encode('utf-8'))
+            self.log.debug(' <-- {}'.format(line))
+        self.w.writelines(_lines)
+        return self.w.drain() 
+
+    def _got_pong(self, pong):
+        if pong[0] == ':':
+            pong = pong[1:]
+        if pong == self._pong:
+            self.ponged = True
+        
+
+    @asyncio.coroutine
+    def _handle_line(self, line):
+        """
+        handle a line from irc client
+        """
+        line = line.decode('utf-8')
+        line = filter_urcline(line)
+        self.log.debug(' --> %s' %[line])
+        _nick = irc_parse_nick(line)
+        _user = irc_parse_user(line)
+        _join = irc_parse_join(line)
+        _joins = irc_parse_multi_join(line)
+        _list = irc_parse_list(line)
+        _part = irc_parse_part(line)
+        _quit = irc_parse_quit(line)
+        _privmsg = irc_parse_privmsg(line)
+        _ping = irc_parse_ping(line)        
+        _pong = irc_parse_pong(line)
+        _mode = irc_parse_mode(line)
+        _who = irc_parse_who(line)
+        _away_on = irc_parse_away_on(line)
+        _away_off = irc_parse_away_off(line)
+
+
+        if _away_on:
+            asyncio.async(self.send_line(':{} 306 {} :RPL_UNAWAY\n'.format(self.daemon.name, self.nick)))
+            
+        if _away_off:
+            asyncio.async(self.send_line(':{} 305 {} :RPL_AWAY\n'.format(self.daemon.name, self.nick)))
+            
+        if _pong:
+            self._got_pong(_pong[0])
+        # WHO
+        if _who:
+            lines = list()
+            lines.append(':{} 352 {} {} {} {} {} {} H :0 {}\n'.format(self.daemon.name, self.nick,
+                                                                                     _who[0], self.nick, 
+                                                                                     self.daemon.name, self.nick, 
+                                                                                     self.nick, self.nick))
+            lines.append((':{} 315 {} {} :RPL_ENDOFWHO\n'.format(self.daemon.name, self.nick, _who[0])))
+            asyncio.async(self.send_lines(lines))
+        # MODE
+        if _mode:
+            asyncio.async(self.send_line(':{} 324 {} {} +n\n'.format(self.daemon.name, self.nick, _mode[0])))
+        # LIST
+        if _list:
+            self.log.info('list')
+            lines = list()
+            lines.append(':{} 321 {} CHANNELS :USERS TOPIC\n'.format(self.daemon.name, self.nick))
+            for c in self.daemon.irc_chans:
+                chan = self.daemon.irc_chans[c]
+                lines.append(':{} 322 {} {} {} :URCD\n'.format(self.daemon.name, self.nick, c, len(chan)))
+            lines.append(':{} 323 {} :RPL_LISTEND\n'.format(self.daemon.name, self.nick))
+            asyncio.async(self.send_lines(lines))
+        # PING
+        if _ping:
+            if _ping[0][0] != ':':
+                _ping = ':{}'.format( _ping[0] )
+            else: 
+                _ping = _ping[0]
+            asyncio.async(self.send_line(':{} PONG {}\n'.format(self.daemon.name, _ping)))
+        # QUIT
+        if _quit:
+            self.w.write_eof()
+            self.w.transport.close()
+            self.daemon.disconnected(self)
+        # NICK
+        if self.nick is None and _nick is not None:
+            self.nick = _nick[0]
+        elif self.nick is not None and _nick is not None:
+            self.change_nick(_nick[0])
+            
+        # USER
+        if self.user is None and _user is not None:
+            self.user = _user[0]
+        
+        if self.greeted and self.ponged:
+            # JOIN 
+            self.log.debug(_joins)
+            chans = list()
+            if _joins:
+                for chan in _joins[0].split(','):
+                    self.log.debug(chan)
+                    if irc_is_chan(chan):
+                        chans.append(chan)
+                        self.log.debug('multijoin {}'.format(chan))
+            elif _join and _join[0] not in self.chans:
+                chans.append(_join[0])
+            for chan in chans:
+                self.log.debug('join {}'.format(chan))
+                if chan in self.chans:
+                    self.log.debug('not joining {}'.format(chan))
+                    continue
+                self.chans.append(chan)
+                self.daemon.joined(self, chan)
+                self.daemon.activity(self.nick, chan)
+                lines = list()
+                lines.append(':{}!{}@{} JOIN {}\n'.format(self.nick, self.user, self.daemon.name, chan))
+                lines.append(':{} 353 {} = {} :{}\n'.format(self.daemon.name, self.nick, chan, self.nick))
+                lines.append(':{} 366 {} {} :RPL_ENDOFNAMES\n'.format(self.daemon.name, self.nick, chan))
+                asyncio.async(self.send_lines(lines))
+                
+            # PART
+            if _part and _part in self.chans:
+                self.chans.remove(_part)
+                line = ':{}!{}@{} PART {}\n'.format(self.nick, self.user, self.daemon.name, chan)
+                asyncio.async(self.send_line(line))
+            
+            # PRVIMSG
+            if _privmsg:
+                dest, msg = _privmsg
+                self.daemon.activity(self.nick, dest)
+                line = ':{}!{}@{} PRIVMSG {} :{}\n'.format(self.nick, self.user, 
+                                                           self.daemon.name, dest, msg)
+                if irc_is_chan(dest):
+                    self.daemon.inform_chans_for_user(self, line)
+                else:
+                    for con in self.daemon.irc_cons:
+                        if con.nick == dest:
+                            asyncio.async(con.send_line(line))
+                            return
+                self.daemon.broadcast(line)
+        else:
+            if self.nick is not None and self.user is not None:
+                self.greeted = True
+                asyncio.async(self.send_lines(irc_greet(self.daemon.name, self.nick, self.user, self.daemon.motd())))
+
+
+
+
+class IRCD:
+    """
+    simple ircd UI
+    """
+
+    def __init__(self, urcd):
+        self.name = 'irc.%s.tld' % urcd.get_pubkey()[:8]
+        self.irc_cons = list()
+        self.irc_chans = dict()
+        self.urcd = urcd
+        self.loop = asyncio.get_event_loop()
+        inject_log(self)
+
+
+    def joined(self, con, chan):
+        """
+        a user has joined a channel
+        """
+        line = ':{}!{}@{} JOIN :{}\n'.format(con.nick, con.user, self.name, chan)
+        for user in self.irc_cons:
+            if chan in user.chans:
+                asyncio.async(user.send_line(line))
+            
+
+    def has_nick(self, nick):
+        for user in self.irc_cons:
+            if user.nick == nick:
+                return True
+        return False
+
+    def motd(self, fname='motd.txt'):
+        """
+        read motd file
+        """
+        if os.path.exists(fname):
+            with open(fname) as f:
+                for line in f.read().split('\n'):
+                    yield line
+        else:
+            yield "this server's public key is {}".format(self.urcd.get_pubkey())
+    
+    def incoming_connection(self, r, w):
+        """
+        handle incoming connections
+        """
+        con = irc_handler(self, r, w)
+        self.irc_cons.append(con)
+
+    def inform_chans_for_user(self, user, line):
+        """
+        send a line to every user that is in every channel this user is in
+        """
+        self.log.debug('inform chans for {} : {}'.format(user.nick, [line]))
+        for con in self.irc_cons:
+            if con == user:
+                continue
+            for chan in user.chans:
+                if chan in con.chans:
+                    asyncio.async(con.send_line(line))
+                    break
+
+    def user_quit(self, con):
+        """
+        tell appropriate users that a user quit
+        """   
+
+        line = ':{}!{}@{} QUIT :quit\n'.format(con.nick, con.user, self.name)
+        self.urcd.broadcast(line)
+        # find all users in every chan they are in
+        # give them a quit message from this user
+        users = list()
+        for chan in con.chans:
+            # remove connection from channel
+            _chan = self.irc_chans[chan]
+            if con.nick in _chan:
+                _chan.pop(con.nick)
+        # inform users of quit
+        self.inform_chans_for_user(con, line)
+
+
+    def disconnected(self, con):
+        """
+        handle connection lost
+        """
+        self.irc_cons.remove(con)
+        self.user_quit(con)
+
+    def activity(self, nick, chan):
+        """
+        called when we got activity by user with nick in channel chan
+        """
+        tstamp = taia96n_now()
+        if chan not in self.irc_chans:
+            self.irc_chans[chan] = dict()
+        self.irc_chans[chan][nick] = tstamp
+
+    def urc_activity(self, src, cmd, dst, msg):
+        """
+        update the state of the ircd from a remote line
+        """
+        if msg is None:
+            line = ':{} {} {}\n'.format(src, cmd, dst)
+        else:
+            line = ':{} {} {} :{}\n'.format(src, cmd, dst, msg)
+        for irc in self.irc_cons:
+            self.log.debug(irc.chans)
+            if dst in irc.chans:
+                asyncio.async(irc.send_line(line))
+
+        self.log.debug((src, cmd, dst))
+        cmd = cmd.upper()
+        if dst is None:
+            _chan = irc_parse_channel_name(msg)
+        else:
+            _chan = irc_parse_channel_name(dst)
+            
+        nick, user, serv = irc_parse_nick_user_serv(src) or None, None, None
+        if cmd == 'QUIT' and nick:
+            for con in self.irc_cons:
+                if con.nick == nick:
+                    self.user_quit(con)
+
+        if _chan and nick:
+            # for LIST
+            if _chan not in self.irc_chans:
+                self.irc_chans[_chan] = dict()
+            # JOIN
+            if cmd == 'JOIN' and nick not in self.irc_chans[_chan]:
+                self.activity(nick, _chan)
+            # PART
+            if cmd == 'PART' and nick in self.irc_chans[_chan]:
+                self.irc_chan[_chan].pop(nick)
+            # PRIVMSG from existing
+            if cmd == 'PRIVMSG' and nick not in self.irc_chans[_chan]:
+                self.activity(nick, _chan)
+
+    def broadcast(self, line):
+        """
+        broadcast a line to the network
+        """
+        self.urcd.broadcast(line)
  
 class URCD:
     """
@@ -423,15 +649,14 @@ class URCD:
 
     def __init__(self):
         self.initkeys()
-        self.name = self.get_pubkey()[:16]
+
+        self.ircd = IRCD(self)
         self.hubs = list()
         self.persist_hubs = dict()
-        self.irc_cons = list()
-        self.irc_chans = dict()
         self.hooks = list()
         self.loop = asyncio.get_event_loop()
-        self.tasks = list()
         self._urc_cache = _bloom_filter(32 * 1024, 4)
+
         inject_log(self)
         self.loop.call_later(1, self._persist_hubs)
 
@@ -501,7 +726,7 @@ class URCD:
         """
         yield "This server's public key is %s" % self.get_pubkey()
 
-    @asyncio.coroutine
+
     def broadcast(self, urcline):
         """
         send urcline to all connection
@@ -512,7 +737,9 @@ class URCD:
         pkt = mk_hubpkt(urcline, 1)
         sig = nacl_sign(pkt, self._sk)
         self.log.debug('sig=%s' % [sig])
-        return self.forward_hub_packet(None, pkt+sig)
+        pktdata = pkt + sig
+        self._urc_cache.add(pktdata)
+        asyncio.async(self.forward_hub_packet(None, pktdata))
 
         
     def _new_hub_connection(self, r, w):
@@ -521,7 +748,7 @@ class URCD:
         """
         con = urc_hub_connection(self, r, w)
         self.hubs.append(con)
-        asyncio.async(self._handle_hub_packet(con))
+        asyncio.async(self._get_hub_packet(con))
         return con
 
     @asyncio.coroutine
@@ -531,18 +758,25 @@ class URCD:
         """
         self.log.info('connecting to hub at {} port {}'.format(host, port))
         r, w = yield from asyncio.open_connection(host, port)
+        #r, w = yield from asyncio.open_connection('127.0.0.1', 9050)
+        #self.log.info('connection to tor made')
+        #w.write(b'\x05\x01\x00')
+        #data = yield from w.drain()
+        
         self.log.info('connected to hub at {} port {}'.format(host, port))
+        
         return self._new_hub_connection(r, w)
  
-    def _disconnected(self, con):
-        self.log.warn('disconnceted')
+    def disconnected(self, con):
+        """
+        urc hub has disconnected
+        """
+        self.log.info('hub disconnceted')
         if con in self.hubs:
             self.hubs.remove(con)
             for addr in self.persist_hubs:
                 if self.persist_hubs[addr] == con:
                     self.persist_hubs[addr] = None
-        if con in self.irc_cons:
-            self.irc_cons.remove(con)
 
     def connect_hub(self, host, port):
         """
@@ -558,19 +792,11 @@ class URCD:
         self.log.info('incoming hub connection')
         self._new_hub_connection(r, w)
 
-    def _incoming_irc(self, r, w):
-        """
-        incoming irc connection
-        """
-        self.log.info('incoming irc connection')
-        con = irc_handler(self, r, w)
-        self.irc_cons.append(con)
-
     def bind_ircd(self, host, port):
         """
         bind ircd to host:port
         """
-        asyncio.async(asyncio.start_server(self._incoming_irc, host, port))
+        asyncio.async(asyncio.start_server(self.ircd.incoming_connection, host, port))
         self.log.info('bind ircd to {} port {}'.format(host,port))
 
     def bind_hub(self, host, port):
@@ -578,45 +804,9 @@ class URCD:
         bind server to host:port
         """
         asyncio.async(asyncio.start_server(self._incoming_hub, host, port))
-        self.log.info('bind hub to {} port {}'.format(host,port))
-
-
-    def _urc_activity(self, nick, chan):
-        """
-        record urc activity for cache
-        """
-        tstamp = taia96n_now()
-        self.irc_chans[chan][nick] = tstamp
-        
+        self.log.info('bind hub to {} port {}'.format(host,port))        
     
 
-    def _handle_irc_state(self, src, cmd, dst):
-        """
-        handle irc server state management
-        """
-        self.log.debug((src, cmd, dst))
-        cmd = cmd.upper()
-        chan = irc_parse_channel_name(dst)
-        nick, user, serv = irc_parse_nick_user_serv(src) or None, None, None
-        if cmd == 'QUIT' and nick:
-            for chan in self.irc_chans:
-                chan = self.irc_chans[chan]
-                if nick in chan:
-                    chan.pop(nick)
-                    
-        if chan and nick:
-            # for LIST
-            if chan not in self.irc_chans:
-                self.irc_chans[chan] = dict()
-            # JOIN
-            if cmd == 'JOIN' and nick not in self.irc_chans[chan]:
-                self._urc_activity(nick, chan)
-            # PART
-            if cmd == 'PART' and nick in self.irc_chans[chan]:
-                self.irc_chan[chan].pop(nick)
-            # PRIVMSG from existing
-            if cmd == 'PRIVMSG' and nick not in self.irc_chans[chans]:
-                self._urc_activity(nick, chan)
 
     def get_pubkeys(self, fname='pubkeys.txt'):
         """
@@ -628,76 +818,76 @@ class URCD:
                 for line in f.read().split('\n'):
                     yield line.strip()
 
-    @asyncio.coroutine
-    def _handle_hub_packet(self, con):
+    def _get_hub_packet(self, con):
         """
         obtain a hub packet
-        process it
         """
-        self.log.debug('handle packet')
         try:
+            self.log.debug('get packet')
             raw, data, pkttype = yield from con.get_hub_packet()
+        except asyncio.streams.IncompleteReadError:
+            con.close()
+            self.disconnected(con)
         except Exception as e:
             self.log.error(e)
-            self._disconnected(con)
+            self.disconnected(con)
             raise e
         else:
-            if raw in self._urc_cache:
-                self.log.debug('drop duplicate')
-            else:
-                pubkey = None
-                _data = None
-                if pkttype == 1:
-                    sig = data[0-_SIG_SIZE:]
-                    body = raw[:0-_SIG_SIZE]
-                    self.log.debug('sig is %s' % [sig])
-                    self.log.debug('body is %s' % [body])
-                    for key in self.get_pubkeys():
-                        self.log.debug('try key {}'.format(key))
-                        try:
-                            pkey = pubkey2bin(key)
-                            nacl_verify(body, sig, pkey)
-                            pubkey = key
-                            self.log.debug('we are %s' % pubkey)
-                            data = data[:0-_SIG_SIZE]
-                            break
-                        except Exception as e:
-                            self.log.debug('not key {} because {}'.format(key, e))
-                            continue
+            asyncio.async(self._handle_hub_packet(con, raw, data, pkttype))
 
-                self._urc_cache.add(raw)
+    @asyncio.coroutine
+    def _handle_hub_packet(self, con, raw, data, pkttype):
+        """
+        process hub packet
+        """
+        self.log.debug('handle packet')
+        if raw in self._urc_cache:
+            self.log.debug('drop duplicate')
+        else:
+            pubkey = None
+            if pkttype == 1:
+                sig = data[0-_SIG_SIZE:]
+                body = raw[:0-_SIG_SIZE]
+                self.log.debug('sig is %s' % [sig])
+                self.log.debug('body is %s' % [body])
+                for key in self.get_pubkeys():
+                    self.log.debug('try key {}'.format(key))
+                    try:
+                        pkey = pubkey2bin(key)
+                        nacl_verify(body, sig, pkey)
+                        pubkey = key
+                        self.log.debug('we are %s' % pubkey)
+                        data = data[:0-_SIG_SIZE]
+                        break
+                    except Exception as e:
+                        self.log.debug('not key {} because {}'.format(key, e))
+                        continue
+                        
+            self._urc_cache.add(raw)
+            if pubkey is not None or pkttype == 0:
                 _data = data.decode('utf-8')                 
                 parsed = parse_urcline(_data)
                 if parsed:
                     src, cmd, dst, msg = parsed
-                    if dst is None:
-                        dst = msg
-                    self._handle_irc_state(src, cmd, dst)
-                    for irc in self.irc_cons:
-                        self.log.debug(irc.chans)
-                        if dst in irc.chans:
-                            yield from irc.send_line(_data)
-                        else:
-                            self.log.error('invalid urcline {}'.format(data))
-                    yield from self.forward_hub_packet(con, raw)
-                asyncio.async(self._handle_hub_packet(con))
-
+                    self.ircd.urc_activity(src, cmd, dst, msg)
+            asyncio.async(self.forward_hub_packet(con, raw))
+            data = yield from self._get_hub_packet(con)
 
 
 def main():
+    # TODO: argparse
     logging.basicConfig(level = logging.DEBUG)
-
     import sys
     if len(sys.argv) == 1:
-        print ('usage: {} irchost ircport hubhost hubport [remotehubhost remotehubort]'.format(sys.argv[0]))
+        print ('usage: {} irchost ircport remotehubhost remotehubort [hubhost hubort]'.format(sys.argv[0]))
     else:
         urcd = URCD()
         try:
             urcd.bind_ircd(sys.argv[1], int(sys.argv[2]))
-            urcd.bind_hub(sys.argv[3], int(sys.argv[4]))
+            urcd.connect_hub(sys.argv[3], int(sys.argv[4]))
             if len(sys.argv) == 7:
-                urcd.connect_hub(sys.argv[5], int(sys.argv[6]))
-                urcd.loop.run_forever()
+                urcd.bind_hub(sys.argv[5], int(sys.argv[6]))
+            urcd.loop.run_forever()
         finally:
             urcd.loop.close()
 
