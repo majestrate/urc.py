@@ -118,7 +118,7 @@ irc_parse_who = lambda line : _irc_re_parse(_RE_WHO_CMD, line)
 def irc_greet(serv, nick, user, motd):
     """
     generate an irc greeting for a new user 
-    return a generator of lines to send 
+    yield lines to send 
     """
     for num , msg in (
             ('001', ':{}'.format(serv)), 
@@ -487,10 +487,13 @@ class irc_handler:
                 if irc_is_chan(dest):
                     self.daemon.inform_chans_for_user(self, line)
                 else:
-                    for con in self.daemon.irc_cons:
-                        if con.nick == dest:
-                            asyncio.async(con.send_line(line))
-                            return
+                    if dest == '*urcd' and False: # todo: implement
+                        self.daemon.handle_control(self, msg)
+                    else:
+                        for con in self.daemon.irc_cons:
+                            if con.nick == dest:
+                                asyncio.async(con.send_line(line))
+                                return
                 self.daemon.broadcast(line)
         else:
             if self.nick is not None and self.user is not None:
@@ -513,6 +516,11 @@ class IRCD:
         self.loop = asyncio.get_event_loop()
         inject_log(self)
 
+    def handle_control(self, con, msg):
+        if self.auth.connection_authed(con)):
+            asyncio.async(self.controller.handle(con, msg))
+        else:
+            asyncio.async(self.auth.handle(con, msg))
 
     def joined(self, con, chan):
         """
@@ -525,6 +533,9 @@ class IRCD:
             
 
     def has_nick(self, nick):
+        """
+        return True if this ircd has a user with nickname nick connected
+        """
         for user in self.irc_cons:
             if user.nick == nick:
                 return True
@@ -538,9 +549,9 @@ class IRCD:
             with open(fname) as f:
                 for line in f.read().split('\n'):
                     yield line
-        else:
-            yield "this server's public key is {}".format(self.urcd.get_pubkey())
+        yield "this server's public key is {}".format(self.urcd.get_pubkey())
     
+
     def incoming_connection(self, r, w):
         """
         handle incoming connections
