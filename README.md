@@ -1,33 +1,85 @@
 urc.py
 ======
 
-Simple, less convoluted version of [https://github.com/d3v11b0t/urcd](urcd) that probably sucks less.
 
+What is URC?
 
-Work In progress
+URC stands for URC Relay Chat, protocol orginally created by d3v11.
+URC is an NIH-inspired IRC-like protocol that uses optinally signed messages over tcp
+connections in a broadcast like fashion, maybe it'll become routed using Kademlia later you never know.
+No hub level authentication yet, maybe that will come later.
+urc.py is a simple implementation of [urcd](https://github.com/d3v11b0t/urcd) that probably sucks less.
 
-Usage:
+Work In progress.
 
+Requirements:
+
+* libsodium
+* libnacl
+* python 3.4
+
+Install Requirements:
+
+    # check out source code
     git clone https://github.com/majestrate/urc.py/
     cd urc.py/
-    socat TCP-LISTEN:6661,bind=127.0.0.1,fork SOCKS4A:127.0.0.1:allyour4nert7pkh.onion.onion:6668,socksport=9050 & disown
-    torify python3.4 urc.py 127.0.0.1 6667 127.0.0.1 6661
-    echo '9df079de0e230028ddd2d1a34623fb280aa2ce81874971e2374e20305733fd85' >> pubkeys.txt
+
+    # get submodules
+    git submodule init
+    git submodule update
+
+    # install libsodium
+    cd libsodium
+    ./autogen.sh 
+    make
+    make install
+
+    # install requirements
+    sudo pip-3.4 install -r requirments.txt
+
+Basic Usage:
+
+    # connect to main hype hub on default port
+    python3.4 urc.py --remote-hub fcc5:3cf4:d2db:8258:d9d1:f073:52fa:4b3
+
+Advanced usage:
+
+    # establish a hub connection to <remote_hub_address> on port 6666
+    # provide hub connection on port 6666 from your hype address
+    python3.4 urc.py --remote-hub <remote_hub_address> --remote-port 6666 --hub <your_hype_address> --port 6666
 
 
-then connect to localhost as irc server
+
+Connect to localhost as irc server to talk to the network
+your public key is located in the motd of the server
 
 active channels:
 
-* #overchan
 * #anonet
+* #overchan
+
+runs in read only mode, other nodes will not accept your messages unless they have your public key
+add other's public keys in ./pubkeys.txt
 
 
-this runs in read only mode, other nodes will not accept your messages unless they have your public key
 
 TODO:
 
+* make irc ui usable
 * automagic PKI management
 * configuration files
 * manage public keys via irc ui
 * manage toggling of drop rules via irc ui
+* use json for pubkeys?
+* modularize?
+
+TODO IRC UI:
+
+* implement TOPIC
+* fix LIST
+* fix MODE
+* implement admin services
+* fix channel joins
+* add configurable filters
+* implement remote user expiration
+

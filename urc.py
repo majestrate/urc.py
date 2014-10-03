@@ -43,7 +43,7 @@ _RE_QUIT_CMD = '^QUIT (.+)$'
 _RE_LIST_CMD = '^(LIST)'
 _RE_PING_CMD = '^PING (.*)$' 
 _RE_PONG_CMD = '^PONG (.*)$' 
-_RE_MODE_CMD = '^MODE (%s)?(.+)$' % _RE_CHAN
+_RE_MODE_CMD = '^MODE (%s)?\s(\\w+)$' % _RE_CHAN
 _RE_WHO_CMD = '^WHO (%s)$' % _RE_CHAN
 _RE_AWAY_ON_CMD = '^AWAY (.+)$'
 _RE_AWAY_OFF_CMD = '^(AWAY) ?$'
@@ -65,7 +65,6 @@ def nacl_sign(m, sk):
     return signature
     """
     s = libnacl.crypto_sign(m,sk)
-    print(len(s) - len(m))
     return s[:_SIG_SIZE]
 
 
@@ -349,7 +348,10 @@ class irc_handler:
         """
         self.w.write(line.encode('utf-8'))
         self.log.debug(' <-- {}'.format(line))
-        return self.w.drain() 
+        try:
+            return self.w.drain() 
+        except:
+            self.daemon.disconnected(self)
 
     @asyncio.coroutine
     def send_lines(self, lines):
@@ -361,7 +363,10 @@ class irc_handler:
             _lines.append(line.encode('utf-8'))
             self.log.debug(' <-- {}'.format(line))
         self.w.writelines(_lines)
-        return self.w.drain() 
+        try:
+            return self.w.drain() 
+        except:
+            self.daemon.disconnected(self)
 
     def _got_pong(self, pong):
         if pong[0] == ':':
@@ -615,10 +620,6 @@ class IRCD:
             line = ':{} {} {}\n'.format(src, cmd, dst)
         else:
             line = ':{} {} {} :{}\n'.format(src, cmd, dst, msg)
-        for irc in self.irc_cons:
-            self.log.debug(irc.chans)
-            if dst in irc.chans:
-                asyncio.async(irc.send_line(line))
 
         self.log.debug((src, cmd, dst))
         cmd = cmd.upper()
@@ -626,7 +627,13 @@ class IRCD:
             _chan = irc_parse_channel_name(msg)
         else:
             _chan = irc_parse_channel_name(dst)
-            
+
+        _nick = None
+
+        if _chan is None:
+            _nick = dst
+        
+
         nick, user, serv = irc_parse_nick_user_serv(src) or None, None, None
         if cmd == 'QUIT' and nick:
             for con in self.irc_cons:
@@ -640,12 +647,21 @@ class IRCD:
             # JOIN
             if cmd == 'JOIN' and nick not in self.irc_chans[_chan]:
                 self.activity(nick, _chan)
-            # PART
-            if cmd == 'PART' and nick in self.irc_chans[_chan]:
-                self.irc_chan[_chan].pop(nick)
-            # PRIVMSG from existing
-            if cmd == 'PRIVMSG' and nick not in self.irc_chans[_chan]:
+            # PRIVMSG 
+            if cmd == 'PRIVMSG' and nick:
                 self.activity(nick, _chan)
+        
+        for irc in self.irc_cons:
+            self.log.debug(irc.chans)
+            if dst in irc.chans:
+                asyncio.async(irc.send_line(line))
+            
+       
+        if _nick:
+            for user in self.irc_cons:
+                if user.nick == _nick: 
+                    asyncio.async(user.send_line(line))
+                    break
 
     def broadcast(self, line):
         """
@@ -885,19 +901,47 @@ class URCD:
             data = yield from self._get_hub_packet(con)
 
 
+def get_log_lvl(lvl):
+    """
+    get logging level via string
+    """
+    lvl = lvl.lower()
+    if lvl == 'debug':
+        return logging.DEBUG
+    if lvl == 'info':
+        return logging.INFO
+    if lvl == 'warn':
+        return logging.WARN
+    if lvl == 'error':
+        return logging.ERROR
+
 def main():
-    # TODO: argparse
-    logging.basicConfig(level = logging.DEBUG)
+    import argparse
+    ap = argparse.ArgumentParser()
+
+    ap.add_argument('--log', type=str, default='warn')
+    ap.add_argument('--irc', type=str, default='::1')
+    ap.add_argument('--irc-port', type=int, default=6667)
+    ap.add_argument('--remote-hub', type=str, required=True)
+    ap.add_argument('--remote-hub-port', type=int, default=6666)
+    ap.add_argument('--hub', type=str, default=None)
+    ap.add_argument('--hub-port', type=int, default=6666)
+    
+    args = ap.parse_args()
+
+    loglvl = get_log_lvl(args.log)
+
+    logging.basicConfig(level = loglvl, format='%(asctime)s [%(levelname)s] %(name)s : %(message)s')
     import sys
     if len(sys.argv) == 1:
         print ('usage: {} irchost ircport remotehubhost remotehubort [hubhost hubort]'.format(sys.argv[0]))
     else:
         urcd = URCD()
         try:
-            urcd.bind_ircd(sys.argv[1], int(sys.argv[2]))
-            urcd.connect_hub(sys.argv[3], int(sys.argv[4]))
-            if len(sys.argv) == 7:
-                urcd.bind_hub(sys.argv[5], int(sys.argv[6]))
+            urcd.bind_ircd(args.irc, args.irc_port)
+            urcd.connect_hub(args.remote_hub, args.remote_hub_port)
+            if args.hub:
+                urcd.bind_hub(args.hub, args.hub_port)
             urcd.loop.run_forever()
         finally:
             urcd.loop.close()
