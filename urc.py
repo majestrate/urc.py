@@ -151,14 +151,14 @@ def taia96n_now():
     """
     now = time.time()
     sec, nano = taia96n()
-    return struct.pack('<QI', sec, nano)
+    return struct.pack('!QI', sec, nano)
 
 def taia96n_parse(data):
     """
     parse unnecessarily accurate timestamp
     """
     if len(data) != 12: return None
-    return struct.unpack('<QI',data)
+    return struct.unpack('!QI',data)
 
 def filter_urcline(string, filler=''):
     """
@@ -674,9 +674,10 @@ class URCD:
     urcd server context
     """
 
-    def __init__(self):
+    def __init__(self, sign=True):
         self.initkeys()
-
+        self.sign = sign
+        print ('sign=%s'%sign)
         self.ircd = IRCD(self)
         self.hubs = list()
         self.persist_hubs = dict()
@@ -761,10 +762,13 @@ class URCD:
         if isinstance(urcline, str):
             urcline = urcline.encode('utf-8')
         self.log.info('broadcast {}'.format(urcline))
-        pkt = mk_hubpkt(urcline, 1)
-        sig = nacl_sign(pkt, self._sk)
-        self.log.debug('sig=%s' % [sig])
-        pktdata = pkt + sig
+        if self.sign:
+            pkt = mk_hubpkt(urcline, 1)
+            sig = nacl_sign(pkt, self._sk)
+            self.log.debug('sig=%s' % [sig])
+            pktdata = pkt + sig
+        else:
+            pktdata = mk_hubpkt(urcline, 0)
         self._urc_cache.add(pktdata)
         asyncio.async(self.forward_hub_packet(None, pktdata))
 
@@ -926,6 +930,7 @@ def main():
     ap.add_argument('--remote-hub-port', type=int, default=6666)
     ap.add_argument('--hub', type=str, default=None)
     ap.add_argument('--hub-port', type=int, default=6666)
+    ap.add_argument('--sign',type=str, default='yes')
     
     args = ap.parse_args()
 
@@ -936,7 +941,7 @@ def main():
     if len(sys.argv) == 1:
         print ('usage: {} irchost ircport remotehubhost remotehubort [hubhost hubort]'.format(sys.argv[0]))
     else:
-        urcd = URCD()
+        urcd = URCD(sign=args.sign.lower() is 'yes')
         try:
             urcd.bind_ircd(args.irc, args.irc_port)
             urcd.connect_hub(args.remote_hub, args.remote_hub_port)
