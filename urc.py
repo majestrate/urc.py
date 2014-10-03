@@ -941,7 +941,7 @@ def main():
     if len(sys.argv) == 1:
         print ('usage: {} irchost ircport remotehubhost remotehubort [hubhost hubort]'.format(sys.argv[0]))
     else:
-        urcd = URCD(sign=args.sign.lower() is 'yes')
+        urcd = URCD(sign=args.sign.lower() == 'yes')
         try:
             urcd.bind_ircd(args.irc, args.irc_port)
             urcd.connect_hub(args.remote_hub, args.remote_hub_port)
