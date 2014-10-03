@@ -256,7 +256,7 @@ class urc_hub_connection:
         """
         hdr, pktlen, tsec, tnano, pkttype = yield from self._read_hdr()
         data = yield from self._read_data(pktlen)
-        return hdr + data , data, pkttype
+        return hdr + data , data, pkttype, (tsec, tnano)
 
     @asyncio.coroutine
     def _read_hdr(self):
@@ -855,7 +855,7 @@ class URCD:
         """
         try:
             self.log.debug('get packet')
-            raw, data, pkttype = yield from con.get_hub_packet()
+            raw, data, pkttype, tstamp  = yield from con.get_hub_packet()
         except asyncio.streams.IncompleteReadError:
             con.close()
             self.disconnected(con)
@@ -864,17 +864,25 @@ class URCD:
             self.disconnected(con)
             raise e
         else:
-            asyncio.async(self._handle_hub_packet(con, raw, data, pkttype))
+            asyncio.async(self._handle_hub_packet(con, raw, data, pkttype, tstamp))
+
+    def _bad_timestamp(self, tstamp, dlt=15):
+        """
+        return true if timestamp is too old or too new
+        """
+        nowsec, nownano = taia96n()
+        thensec, thennano = tstamp
+        return abs(nowsec - thensec) > dlt
 
     @asyncio.coroutine
-    def _handle_hub_packet(self, con, raw, data, pkttype):
+    def _handle_hub_packet(self, con, raw, data, pkttype, tstamp):
         """
         process hub packet
         """
         self.log.debug('handle packet')
-        if raw in self._urc_cache:
-            self.log.debug('drop duplicate')
-        else:
+        if self._bad_timestamp(tstamp):
+            self.log.info('bad timestamp')
+        elif raw not in self._urc_cache:
             pubkey = None
             if pkttype == 1:
                 sig = data[0-_SIG_SIZE:]
@@ -902,7 +910,7 @@ class URCD:
                     src, cmd, dst, msg = parsed
                     self.ircd.urc_activity(src, cmd, dst, msg)
             asyncio.async(self.forward_hub_packet(con, raw))
-            data = yield from self._get_hub_packet(con)
+        asyncio.async(self._get_hub_packet(con))
 
 
 def get_log_lvl(lvl):
