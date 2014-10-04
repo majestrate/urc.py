@@ -618,50 +618,50 @@ class IRCD:
         """
         if msg is None:
             line = ':{} {} {}\n'.format(src, cmd, dst)
+        elif dst is None:
+            line = ':{} {} :{}\n'.format(src, cmd, msg)
         else:
             line = ':{} {} {} :{}\n'.format(src, cmd, dst, msg)
 
-        self.log.debug((src, cmd, dst))
+        self.log.debug((src, cmd, dst, msg))
         cmd = cmd.upper()
         if dst is None:
-            _chan = irc_parse_channel_name(msg)
+            _chan = irc_is_chan(msg) and msg or None
         else:
-            _chan = irc_parse_channel_name(dst)
+            _chan = irc_is_chan(dst) and dst or None
 
         _nick = None
 
         if _chan is None:
             _nick = dst
-        
+        self.log.debug((_chan, _nick, line))
 
         nick, user, serv = irc_parse_nick_user_serv(src) or None, None, None
-        if cmd == 'QUIT' and nick:
-            for con in self.irc_cons:
-                if con.nick == nick:
-                    self.user_quit(con)
 
-        if _chan and nick:
+        if _chan and _nick:
             # for LIST
             if _chan not in self.irc_chans:
                 self.irc_chans[_chan] = dict()
             # JOIN
-            if cmd == 'JOIN' and nick not in self.irc_chans[_chan]:
-                self.activity(nick, _chan)
+            if cmd == 'JOIN' and _nick not in self.irc_chans[_chan]:
+                self.activity(_nick, _chan)
             # PRIVMSG 
-            if cmd == 'PRIVMSG' and nick:
-                self.activity(nick, _chan)
+            if cmd == 'PRIVMSG' and _nick:
+                self.activity(_nick, _chan)
         
-        for irc in self.irc_cons:
-            self.log.debug(irc.chans)
-            if dst in irc.chans:
-                asyncio.async(irc.send_line(line))
-            
+
        
         if _nick:
             for user in self.irc_cons:
                 if user.nick == _nick: 
                     asyncio.async(user.send_line(line))
-                    break
+                    return
+        
+        for irc in self.irc_cons:
+            self.log.debug(irc.chans)
+            if _chan in irc.chans:
+                asyncio.async(irc.send_line(line))
+            
 
     def broadcast(self, line):
         """
@@ -787,7 +787,7 @@ class URCD:
         """
         connect out to a hub
         """
-        self.log.info('connecting to hub at {} port {}'.format(host, port))
+.        self.log.info('connecting to hub at {} port {}'.format(host, port))
         r, w = yield from asyncio.open_connection(host, port)
         #r, w = yield from asyncio.open_connection('127.0.0.1', 9050)
         #self.log.info('connection to tor made')
@@ -938,7 +938,7 @@ def main():
     ap.add_argument('--remote-hub-port', type=int, default=6666)
     ap.add_argument('--hub', type=str, default=None)
     ap.add_argument('--hub-port', type=int, default=6666)
-    ap.add_argument('--sign',type=str, default='yes')
+    ap.add_argument('--sign',type=str, default='no')
     
     args = ap.parse_args()
 
