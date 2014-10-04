@@ -787,7 +787,7 @@ class URCD:
         """
         connect out to a hub
         """
-.        self.log.info('connecting to hub at {} port {}'.format(host, port))
+        self.log.info('connecting to hub at {} port {}'.format(host, port))
         r, w = yield from asyncio.open_connection(host, port)
         #r, w = yield from asyncio.open_connection('127.0.0.1', 9050)
         #self.log.info('connection to tor made')
