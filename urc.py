@@ -14,7 +14,9 @@ import time
 import logging
 import os
 from hashlib import sha256
-import libnacl
+
+# no need for urcsign
+# import libnacl
 
 rand = lambda n : os.urandom(n)
 
@@ -50,34 +52,34 @@ _RE_AWAY_OFF_CMD = '^(AWAY) ?$'
 # -- end lameass regexp block
 
 # -- being crypto stuff
-
-_SIG_SIZE = libnacl.crypto_sign_BYTES
-
-def nacl_verify(m, s, pk):
-    """
-    verify message m with signature s for public key pk
-    """
-    libnacl.crypto_sign_open(s+m, pk)
-
-def nacl_sign(m, sk):
-    """
-    sign message m with secret key sk
-    return signature
-    """
-    s = libnacl.crypto_sign(m,sk)
-    return s[:_SIG_SIZE]
-
-
-def test_crypto(data=rand(8)):
-    pk , sk = libnacl.crypto_sign_keypair()
-    sig = nacl_sign(data, sk)
-    nacl_verify(data, sig, pk)
-
-test_crypto()
-
-def pubkey2bin(pk):
-    return binascii.unhexlify(pk)
-
+#
+#_SIG_SIZE = libnacl.crypto_sign_BYTES
+#
+#def nacl_verify(m, s, pk):
+#    """
+#    verify message m with signature s for public key pk
+#    """
+#    libnacl.crypto_sign_open(s+m, pk)
+#
+#def nacl_sign(m, sk):
+#    """
+#    sign message m with secret key sk
+#    return signature
+#    """
+#    s = libnacl.crypto_sign(m,sk)
+#    return s[:_SIG_SIZE]
+#
+#
+#def test_crypto(data=rand(8)):
+#    pk , sk = libnacl.crypto_sign_keypair()
+#    sig = nacl_sign(data, sk)
+#    nacl_verify(data, sig, pk)
+#
+#test_crypto()
+#
+#def pubkey2bin(pk):
+#    return binascii.unhexlify(pk)
+#
 # -- end crypto stuff
 
 # -- begin irc functions
@@ -176,14 +178,16 @@ def parse_urcline(line):
     if m:
         return m.groups()
 
-def mk_hubpkt(pktdata, pkttype):
+def mk_hubpkt(pktdata, pkttype=0):
     """
     make urc hub packet
     """
+    if pkttype != 0:
+        return None
     data = bytes()
     pktlen = len(pktdata)
-    if pkttype == 1:
-        pktlen += _SIG_SIZE
+    #if pkttype == 1:
+    #    pktlen += _SIG_SIZE
     data += struct.pack('!H', pktlen) # packet length
     data += taia96n_now() # timestamp
     data += struct.pack('!B', pkttype) # packet type
@@ -278,7 +282,6 @@ class urc_hub_connection:
     def close(self):
         self.w.transport.close()
 
-    @asyncio.coroutine
     def send_hub_packet(self,pktdata):
         """
         send a hub packet
@@ -464,6 +467,7 @@ class irc_handler:
             elif _join and _join[0] not in self.chans:
                 chans.append(_join[0])
             for chan in chans:
+                chan = chan.strip()
                 self.log.debug('join {}'.format(chan))
                 if chan in self.chans:
                     self.log.debug('not joining {}'.format(chan))
@@ -514,7 +518,7 @@ class IRCD:
     """
 
     def __init__(self, urcd):
-        self.name = 'irc.%s.tld' % urcd.get_pubkey()[:8]
+        self.name = 'irc.%s.tld' % urcd.name
         self.irc_cons = list()
         self.irc_chans = dict()
         self.urcd = urcd
@@ -554,8 +558,8 @@ class IRCD:
             with open(fname) as f:
                 for line in f.read().split('\n'):
                     yield line
-        yield "this server's public key is {}".format(self.urcd.get_pubkey())
-    
+        else:
+            yield 'Channels are empty at first'
 
     def incoming_connection(self, r, w):
         """
@@ -674,51 +678,16 @@ class URCD:
     urcd server context
     """
 
-    def __init__(self, sign=True):
-        self.initkeys()
-        self.sign = sign
-        print ('sign=%s'%sign)
+    def __init__(self, sign=True, name='urc.py'):
+        self.name = name
         self.ircd = IRCD(self)
         self.hubs = list()
         self.persist_hubs = dict()
         self.hooks = list()
         self.loop = asyncio.get_event_loop()
         self._urc_cache = _bloom_filter(32 * 1024, 4)
-
         inject_log(self)
         self.loop.call_later(1, self._persist_hubs)
-
-    def get_pubkey(self):
-        """
-        get public key in base 32
-        """
-        return binascii.hexlify(self._pk).decode('ascii')
-
-    def load_keys(self, fname):
-        """
-        load signing keys from file
-        """
-        with open(fname , 'rb') as f:
-            self._pk = f.read(libnacl.crypto_sign_PUBLICKEYBYTES)
-            self._sk = f.read(libnacl.crypto_sign_SECRETKEYBYTES)
-
-    def dump_keys(self, fname):
-        """
-        dump signing keys to file
-        """
-        with open(fname, 'wb') as f:
-            f.write(self._pk)
-            f.write(self._sk)
-        
-        
-    def initkeys(self, fname='keys.dat'):
-        """
-        generate / load signing keys
-        """
-        if not os.path.exists(fname):
-            self._pk , self._sk  = libnacl.crypto_sign_keypair()
-            self.dump_keys(fname)
-        self.load_keys(fname)
 
     def _persist_hub(self, addr):
         """
@@ -739,20 +708,14 @@ class URCD:
         self.loop.call_later(5, self._persist_hubs)
         
     @asyncio.coroutine
-    def forward_hub_packet(self, connection, pkt):
+    def forward_hub_packet(self, connection, pkt, min_delay=1, max_delay=3):
         """
         forward URCLINE from connection
         """
-        self.log.debug('forward %s' % [pkt])
         for con in self.hubs:
-            if con is not connection:
-                yield from con.send_hub_packet(pkt)
+            if con != connection:
+                asyncio.async(con.send_hub_packet(pkt))
 
-    def motd(self):
-        """
-        yield motd 
-        """
-        yield "This server's public key is %s" % self.get_pubkey()
 
 
     def broadcast(self, urcline):
@@ -762,13 +725,7 @@ class URCD:
         if isinstance(urcline, str):
             urcline = urcline.encode('utf-8')
         self.log.info('broadcast {}'.format(urcline))
-        if self.sign:
-            pkt = mk_hubpkt(urcline, 1)
-            sig = nacl_sign(pkt, self._sk)
-            self.log.debug('sig=%s' % [sig])
-            pktdata = pkt + sig
-        else:
-            pktdata = mk_hubpkt(urcline, 0)
+        pktdata = mk_hubpkt(urcline)
         self._urc_cache.add(pktdata)
         asyncio.async(self.forward_hub_packet(None, pktdata))
 
@@ -789,11 +746,6 @@ class URCD:
         """
         self.log.info('connecting to hub at {} port {}'.format(host, port))
         r, w = yield from asyncio.open_connection(host, port)
-        #r, w = yield from asyncio.open_connection('127.0.0.1', 9050)
-        #self.log.info('connection to tor made')
-        #w.write(b'\x05\x01\x00')
-        #data = yield from w.drain()
-        
         self.log.info('connected to hub at {} port {}'.format(host, port))
         
         return self._new_hub_connection(r, w)
@@ -843,7 +795,6 @@ class URCD:
         """
         get list of public keys
         """
-        yield self.get_pubkey()
         if os.path.exists(fname):
             with open(fname) as f:
                 for line in f.read().split('\n'):
@@ -866,7 +817,7 @@ class URCD:
         else:
             asyncio.async(self._handle_hub_packet(con, raw, data, pkttype, tstamp))
 
-    def _bad_timestamp(self, tstamp, dlt=15):
+    def _bad_timestamp(self, tstamp, dlt=128):
         """
         return true if timestamp is too old or too new
         """
