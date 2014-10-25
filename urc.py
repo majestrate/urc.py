@@ -10,6 +10,8 @@ import binascii
 import struct
 import asyncio
 from random import randrange, Random, randint
+import random
+import string
 import time
 import logging
 import os
@@ -429,7 +431,8 @@ class irc_handler:
             lines.append(':{} 321 {} CHANNELS :USERS TOPIC\n'.format(self.daemon.name, self.nick))
             for c in self.daemon.irc_chans:
                 chan = self.daemon.irc_chans[c]
-                lines.append(':{} 322 {} {} {} :URCD\n'.format(self.daemon.name, self.nick, c, len(chan)))
+                if irc_is_chan(c) and len(chan) > 0:
+                    lines.append(':{} 322 {} {} {} :URCD\n'.format(self.daemon.name, self.nick, c, len(chan)))
             lines.append(':{} 323 {} :RPL_LISTEND\n'.format(self.daemon.name, self.nick))
             asyncio.async(self.send_lines(lines))
         # PING
@@ -446,9 +449,11 @@ class irc_handler:
             self.daemon.disconnected(self)
         # NICK
         if self.nick is None and _nick is not None:
-            self.nick = _nick[0]
+            _nick = self.daemon.filter_nick(_nick[0])
+            self.nick = _nick
         elif self.nick is not None and _nick is not None:
-            self.change_nick(_nick[0])
+            _nick = self.daemon.filter_nick(_nick[0])
+            self.change_nick(_nick)
             
         # USER
         if self.user is None and _user is not None:
@@ -476,9 +481,18 @@ class irc_handler:
                 self.daemon.joined(self, chan)
                 self.daemon.activity(self.nick, chan)
                 lines = list()
-                lines.append(':{}!{}@{} JOIN {}\n'.format(self.nick, self.user, self.daemon.name, chan))
-                lines.append(':{} 353 {} = {} :{}\n'.format(self.daemon.name, self.nick, chan, self.nick))
+                for user in self.daemon.irc_cons:
+                    if chan in user.chans:
+                        lines.append(':{} 353 {} = {} :{}\n'.format(self.daemon.name, self.nick, chan, user.nick))
+                if chan in self.daemon.irc_chans[chan]:
+                    for user in self.daemon.irc_chans[chan]:
+                        match = irc_parse_nick_user_serv(user)
+                        if match:
+                            nick = match[0]
+                            lines.append(':{} 353 {} = {} :{}\n'.format(self.daemon.name, self.nick, chan, nick))
+
                 lines.append(':{} 366 {} {} :RPL_ENDOFNAMES\n'.format(self.daemon.name, self.nick, chan))
+                lines.append(':chanserv!server@{} PRIVMSG {} :{}\n'.format(self.daemon.name, chan, 'the user list may be empty because chi is too lazy to implement NAMES command, enjoy yur stay'))
                 asyncio.async(self.send_lines(lines))
                 
             # PART
@@ -517,19 +531,47 @@ class IRCD:
     simple ircd UI
     """
 
-    def __init__(self, urcd):
+    def __init__(self, urcd, controller, check_auth, do_auth):
         self.name = 'irc.%s.tld' % urcd.name
         self.irc_cons = list()
         self.irc_chans = dict()
         self.urcd = urcd
+        self.controller_hook = controller
+        self.do_auth_hook = do_auth
+        self.check_auth_hook = check_auth
         self.loop = asyncio.get_event_loop()
         inject_log(self)
 
+    def filter_nick(self, nick):
+        """
+        do nickname rewrite rules
+        """
+        if nick == 'nameless':
+            nick = self.randnick()
+            while self.has_nick(nick):
+                nick = self.randnick()
+        return nick
+
+    def randnick(self, nicklen=7, vowels='aeiou', letters='cvbnmlkhgfdswrtp', numbers='1234567890'):
+        """
+        generate random nickname
+        """
+        ret = str()
+        for n in range(nicklen):
+            chars = letters
+            if n % 2 != 0:
+                chars = vowels
+            ret += random.choice(chars).lower()
+        return ret
+
     def handle_control(self, con, msg):
-        if self.auth.connection_authed(con):
-            asyncio.async(self.controller.handle(con, msg))
+        """
+        handle admin actions
+        """
+        if self.check_auth_hook(con):
+            asyncio.async(self.controller_hook(con, msg))
         else:
-            asyncio.async(self.auth.handle(con, msg))
+            asyncio.async(self.do_auth_hook(con, msg))
 
     def joined(self, con, chan):
         """
@@ -660,11 +702,11 @@ class IRCD:
                 if user.nick == _nick: 
                     asyncio.async(user.send_line(line))
                     return
-        
-        for irc in self.irc_cons:
-            self.log.debug(irc.chans)
-            if _chan in irc.chans:
-                asyncio.async(irc.send_line(line))
+        if _chan:
+            for irc in self.irc_cons:
+                self.log.debug(irc.chans)
+                if _chan in irc.chans:
+                    asyncio.async(irc.send_line(line))
             
 
     def broadcast(self, line):
@@ -672,7 +714,33 @@ class IRCD:
         broadcast a line to the network
         """
         self.urcd.broadcast(line)
- 
+
+
+class AdminUI:
+    """
+    urc.py irc admin interface
+    """
+
+    def __init__(self, urcd):
+        self.urcd = urcd
+
+    @asyncio.coroutine
+    def handle_admin(self, con, msg):
+        """
+        handle an admin action
+        """
+
+    def check_auth(self, con):
+        """
+        check if a connection is authenticated with the admin ui
+        """
+
+    @asyncio.coroutine
+    def handle_auth(self, con, msg):
+        """
+        handle login attempt from connection
+        """
+
 class URCD:
     """
     urcd server context
@@ -680,7 +748,8 @@ class URCD:
 
     def __init__(self, sign=True, name='urc.py'):
         self.name = name
-        self.ircd = IRCD(self)
+        self.admin = AdminUI(self)
+        self.ircd = IRCD(self, self.admin.handle_admin, self.admin.check_auth, self.admin.handle_auth)
         self.hubs = list()
         self.persist_hubs = dict()
         self.hooks = list()
