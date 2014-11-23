@@ -22,9 +22,6 @@ Install Requirements:
     git clone https://github.com/majestrate/urc.py/
     cd urc.py/
 
-    # install requirements
-    sudo pip-3.4 install -r requirments.txt
-
 Basic Usage:
 
     # connect to main hub on default port
