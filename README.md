@@ -42,6 +42,7 @@ active channels:
 * #anonet
 * #overchan
 * #urc
+* #newfags
 
 
 
