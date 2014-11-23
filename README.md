@@ -37,6 +37,11 @@ Advanced usage:
 
 Connect to ::1 as irc server to talk to the network
 
+active hubs:
+
+* allyour4nert7pkh.onion
+* cbadanhgoo6oamul.onion
+
 active channels:
 
 * #anonet
