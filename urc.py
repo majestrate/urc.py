@@ -836,6 +836,7 @@ class URCD:
         host, port = parts[0], int(parts[1])
         con = yield from self._connect_hub(host, port)
         if con is None:
+            self.persist_hubs[addr] = None
             return
         self.persist_hubs[addr] = con
         
@@ -858,7 +859,9 @@ class URCD:
             if con is not 0 and con is not None:
                 if con != connection:
                     asyncio.async(con.send_hub_packet(pkt))
-
+        for con in self.hubs:
+            if con != connection:
+                asyncio.async(con.send_hub_packet(pkt))
 
     def broadcast(self, urcline):
         """
@@ -934,6 +937,8 @@ class URCD:
         self.log.info('hub disconnceted')
         if con.addr in self.persist_hubs:
             self.persist_hubs.pop(con.addr)
+        if con in self.hubs:
+            self.hubs.remove(con)
         
 
     def connect_hub(self, host, port):
@@ -948,7 +953,9 @@ class URCD:
         incoming hub connection
         """
         self.log.info('incoming hub connection')
-        self._new_hub_connection(r, w)
+        con = self._new_hub_connection(r, w)
+        con.addr = None
+        self.hubs.append(con)
 
     def bind_ircd(self, host, port):
         """
@@ -1062,7 +1069,7 @@ def main():
     ap.add_argument('--irc-port', type=int, default=6667)
     ap.add_argument('--socks-host', type=str, default='127.0.0.1')
     ap.add_argument('--socks-port', type=str, default=9150)
-    ap.add_argument('--remote-hub', type=str, required='allyour4nert7pkh.onion')
+    ap.add_argument('--remote-hub', type=str, default='allyour4nert7pkh.onion')
     ap.add_argument('--remote-hub-port', type=int, default=6789)
     ap.add_argument('--hub', type=str, default=None)
     ap.add_argument('--hub-port', type=int, default=6789)
