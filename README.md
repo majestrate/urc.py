@@ -14,8 +14,6 @@ Work In progress.
 
 Requirements:
 
-* libsodium
-* libnacl
 * python 3.4
 
 Install Requirements:
@@ -24,23 +22,13 @@ Install Requirements:
     git clone https://github.com/majestrate/urc.py/
     cd urc.py/
 
-    # get submodules
-    git submodule init
-    git submodule update
-
-    # install libsodium
-    cd libsodium
-    ./autogen.sh 
-    make
-    make install
-
     # install requirements
     sudo pip-3.4 install -r requirments.txt
 
 Basic Usage:
 
-    # connect to main hype hub on default port
-    python3.4 urc.py --remote-hub fcc5:3cf4:d2db:8258:d9d1:f073:52fa:4b3
+    # connect to main hub on default port
+    python3.4 urc.py 
 
 Advanced usage:
 
@@ -57,9 +45,7 @@ active channels:
 
 * #anonet
 * #overchan
-
-runs in read only mode, other nodes will not accept your messages unless they have your public key
-add other's public keys in ./pubkeys.txt
+* #urc
 
 
 
@@ -76,10 +62,7 @@ TODO:
 TODO IRC UI:
 
 * implement TOPIC
-* fix LIST
-* fix MODE
 * implement admin services
-* fix channel joins
 * add configurable filters
 * implement remote user expiration
 
