@@ -319,12 +319,33 @@ class irc_handler:
         self._pong = str(randint(100,1000))
         self.greeted = False
         self.chans = list()
+        self._last_ping = time.time()
+        self._pings = dict()
         inject_log(self)
         asyncio.async(self.send_line('PING :{}\n'.format(self._pong)))
         asyncio.async(self._get_line())
 
+    def disconnect(self):
+        """
+        disconnect this user
+        """
+        self.log.info('disconnect user')
+        self.w.close()
+        self.w = None
+        self.r = None
+
+    def ping(self):
+        """
+        ping this user
+        """
+        ping = int(time.time())
+        self._pings[str(ping)] = ping
+        asyncio.async(self.send_line('PING :{}\n'.format(ping)))
+        
     @asyncio.coroutine
     def _get_line(self):
+        if self.r is None:
+            return
         line = yield from self.r.readline()
         if len(line) != 0:
             try:
@@ -351,6 +372,8 @@ class irc_handler:
         """
         send a single line
         """
+        if self.w is None:
+            return
         self.w.write(line.encode('utf-8'))
         self.log.debug(' <-- {}'.format(line))
         try:
@@ -378,8 +401,22 @@ class irc_handler:
             pong = pong[1:]
         if pong == self._pong:
             self.ponged = True
-        
 
+
+    def _ack_ping(self, ping):
+        """
+        ack a ping that may or may not have been sent
+        """
+        if ping in self._pings:
+            self._pings.pop(ping)
+            self._last_ping = time.time()
+
+    def is_timed_out(self):
+        """
+        has this connection timed out?
+        """
+        return ( time.time() - self._last_ping ) > self.daemon.ping_timeout
+            
     @asyncio.coroutine
     def _handle_line(self, line):
         """
@@ -442,6 +479,13 @@ class irc_handler:
             else: 
                 _ping = _ping[0]
             asyncio.async(self.send_line(':{} PONG {}\n'.format(self.daemon.name, _ping)))
+        # PONG
+        if _pong:
+            if _pong[0][0] == ':':
+                self._ack_ping(_pong[0][1:])
+            else:
+                self._ack_ping(_pong[0])
+                
         # QUIT
         if _quit:
             self.w.write_eof()
@@ -492,7 +536,7 @@ class irc_handler:
                             lines.append(':{} 353 {} = {} :{}\n'.format(self.daemon.name, self.nick, chan, nick))
 
                 lines.append(':{} 366 {} {} :RPL_ENDOFNAMES\n'.format(self.daemon.name, self.nick, chan))
-                lines.append(':chanserv!server@{} PRIVMSG {} :{}\n'.format(self.daemon.name, chan, 'the user list may be empty because chi is too lazy to implement NAMES command, enjoy yur stay'))
+                
                 asyncio.async(self.send_lines(lines))
                 
             # PART
@@ -540,8 +584,33 @@ class IRCD:
         self.do_auth_hook = do_auth
         self.check_auth_hook = check_auth
         self.loop = asyncio.get_event_loop()
+        self.ping_interval = 60
+        self.ping_tries = 3
+        self.ping_timeout = self.ping_interval * self.ping_tries
         inject_log(self)
+        self.loop.call_later(1, self.send_pings)
+        self.loop.call_later(1, self.check_ping_timeout)
 
+    def send_pings(self):
+        """
+        send pings
+        """
+        for con in self.irc_cons:
+            con.ping()
+        self.loop.call_later(self.ping_interval, self.send_pings)
+
+
+    def check_ping_timeout(self):
+        """
+        check for ping timeouts
+        remove as needed
+        """
+        for con in self.irc_cons:
+            if con.is_timed_out():
+                con.disconnect()
+                self.disconnected(con)
+        self.loop.call_later(5, self.check_ping_timeout)
+            
     def filter_nick(self, nick):
         """
         do nickname rewrite rules
@@ -784,7 +853,6 @@ class URCD:
         for con in self.hubs:
             if con != connection:
                 asyncio.async(con.send_hub_packet(pkt))
-
 
 
     def broadcast(self, urcline):
