@@ -715,6 +715,7 @@ class IRCD:
         """
         handle connection lost
         """
+        self.log.info('disconnecting {}'.format(con))
         self.irc_cons.remove(con)
         self.user_quit(con)
 
@@ -834,6 +835,8 @@ class URCD:
         parts = addr.split(' ')
         host, port = parts[0], int(parts[1])
         con = yield from self._connect_hub(host, port)
+        if con is None:
+            return
         self.persist_hubs[addr] = con
         
     def _persist_hubs(self):
@@ -843,16 +846,18 @@ class URCD:
         for addr in self.persist_hubs:
             if self.persist_hubs[addr] is None:
                 asyncio.async(self._persist_hub(addr))
-        self.loop.call_later(5, self._persist_hubs)
+        self.loop.call_later(1, self._persist_hubs)
         
     @asyncio.coroutine
     def forward_hub_packet(self, connection, pkt, min_delay=1, max_delay=3):
         """
         forward URCLINE from connection
         """
-        for con in self.hubs:
-            if con != connection:
-                asyncio.async(con.send_hub_packet(pkt))
+        for k in self.persist_hubs:
+            con = self.persist_hubs[k]
+            if con is not 0 and con is not None:
+                if con != connection:
+                    asyncio.async(con.send_hub_packet(pkt))
 
 
     def broadcast(self, urcline):
@@ -872,31 +877,64 @@ class URCD:
         called when we got a new hub connection
         """
         con = urc_hub_connection(self, r, w)
-        self.hubs.append(con)
         asyncio.async(self._get_hub_packet(con))
         return con
 
-    @asyncio.coroutine
+    def _socks_handshake(self, r, w, host, port):
+        """
+        do socks v5 handshake
+        """
+
+        w.write(b'\x05\x01\x00')
+        _ = yield from w.drain()
+        data = yield from r.readexactly(2)
+        self.log.debug('read handshake %r' % data)
+        req = struct.pack('!BBBBB', 5, 1, 0,  3, len(host))
+        req += host.encode('utf-8')
+        req += struct.pack('!H', port)
+        self.log.debug('write request %r' % req)
+        w.write(req)
+        _ = yield from w.drain()
+        self.log.debug('read response %d bytes' % len(req))
+        data = yield from r.readexactly(4)
+        if data[3] == 1:
+            _ = yield from r.readexactly(4)
+        else:
+            self.log.debug('wtf?')
+            w.close()
+        port = yield from r.readexactly(2)
+        self.log.debug(struct.unpack('!H', port))
+        return data[1] == 0
+        
+    
     def _connect_hub(self, host, port):
         """
         connect out to a hub
         """
+        hub = '{} {}'.format(host, port)
+
         self.log.info('connecting to hub at {} port {}'.format(host, port))
-        r, w = yield from asyncio.open_connection(host, port)
-        self.log.info('connected to hub at {} port {}'.format(host, port))
-        
-        return self._new_hub_connection(r, w)
+        r, w = yield from asyncio.open_connection(self.socks_host, self.socks_port)
+        self.persist_hubs[hub] = 0
+        result = yield from self._socks_handshake(r, w, host, port)
+        self.log.debug('socks = {}'.format(result))
+        if result is True:
+            self.log.info('connected to hub at {} port {}'.format(host, port))
+            con = self._new_hub_connection(r, w)
+            con.addr = hub
+            return con
+        else:
+            self.log.warn('connection to hub at {} port {} failed'.format(host, port))
+            w.close()
  
     def disconnected(self, con):
         """
         urc hub has disconnected
         """
         self.log.info('hub disconnceted')
-        if con in self.hubs:
-            self.hubs.remove(con)
-            for addr in self.persist_hubs:
-                if self.persist_hubs[addr] == con:
-                    self.persist_hubs[addr] = None
+        if con.addr in self.persist_hubs:
+            self.persist_hubs.pop(con.addr)
+        
 
     def connect_hub(self, host, port):
         """
@@ -1022,30 +1060,31 @@ def main():
     ap.add_argument('--log', type=str, default='warn')
     ap.add_argument('--irc', type=str, default='::1')
     ap.add_argument('--irc-port', type=int, default=6667)
+    ap.add_argument('--socks-host', type=str, default='127.0.0.1')
+    ap.add_argument('--socks-port', type=str, default=9150)
     ap.add_argument('--remote-hub', type=str, required=True)
-    ap.add_argument('--remote-hub-port', type=int, default=6666)
-    ap.add_argument('--hub', type=str, default=None)
-    ap.add_argument('--hub-port', type=int, default=6666)
+    ap.add_argument('--remote-hub-port', type=int, default=6789)
+    ap.add_argument('--hub', type=str, default=None, required=True)
+    ap.add_argument('--hub-port', type=int, default=6789)
     ap.add_argument('--sign',type=str, default='no')
     
     args = ap.parse_args()
 
-    loglvl = get_log_lvl(args.log)
+    loglvl = get_log_lvl(args.log) or logging.WARN
 
     logging.basicConfig(level = loglvl, format='%(asctime)s [%(levelname)s] %(name)s : %(message)s')
-    import sys
-    if len(sys.argv) == 1:
-        print ('usage: {} irchost ircport remotehubhost remotehubort [hubhost hubort]'.format(sys.argv[0]))
-    else:
-        urcd = URCD(sign=args.sign.lower() == 'yes')
-        try:
-            urcd.bind_ircd(args.irc, args.irc_port)
-            urcd.connect_hub(args.remote_hub, args.remote_hub_port)
-            if args.hub:
-                urcd.bind_hub(args.hub, args.hub_port)
-            urcd.loop.run_forever()
-        finally:
-            urcd.loop.close()
+
+    urcd = URCD(sign=args.sign.lower() == 'yes')
+    urcd.socks_host = args.socks_host
+    urcd.socks_port = args.socks_port
+    try:
+        urcd.bind_ircd(args.irc, args.irc_port)
+        urcd.connect_hub(args.remote_hub, args.remote_hub_port)
+        if args.hub:
+            urcd.bind_hub(args.hub, args.hub_port)
+        urcd.loop.run_forever()
+    finally:
+        urcd.loop.close()
 
 
 if __name__ == '__main__':
