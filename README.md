@@ -33,13 +33,12 @@ Basic Usage:
 Advanced usage:
 
     # establish a hub connection to <remote_hub_address> on port 6666
-    # provide hub connection on port 6666 from your hype address
-    python3.4 urc.py --remote-hub <remote_hub_address> --remote-port 6666 --hub <your_hype_address> --port 6666
+    # provide hub connection on port 6666 from your_address
+    python3.4 urc.py --remote-hub <remote_hub_address> --remote-port 6666 --hub <your_address> --port 6666
 
 
 
-Connect to localhost as irc server to talk to the network
-your public key is located in the motd of the server
+Connect to ::1 as irc server to talk to the network
 
 active channels:
 
@@ -58,6 +57,7 @@ TODO:
 * manage toggling of drop rules via irc ui
 * use json for pubkeys?
 * modularize?
+* ratelimiting
 
 TODO IRC UI:
 
