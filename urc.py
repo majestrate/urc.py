@@ -1062,9 +1062,9 @@ def main():
     ap.add_argument('--irc-port', type=int, default=6667)
     ap.add_argument('--socks-host', type=str, default='127.0.0.1')
     ap.add_argument('--socks-port', type=str, default=9150)
-    ap.add_argument('--remote-hub', type=str, required=True)
+    ap.add_argument('--remote-hub', type=str, required='allyour4nert7pkh.onion')
     ap.add_argument('--remote-hub-port', type=int, default=6789)
-    ap.add_argument('--hub', type=str, default=None, required=True)
+    ap.add_argument('--hub', type=str, default=None)
     ap.add_argument('--hub-port', type=int, default=6789)
     ap.add_argument('--sign',type=str, default='no')
     
