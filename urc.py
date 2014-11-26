@@ -17,8 +17,15 @@ import logging
 import os
 from hashlib import sha256
 
-# no need for urcsign
-# import libnacl
+# for urc_sign
+import libnacl
+
+
+# -- urc message types
+URC_PLAIN = struct.unpack('!H', b'\x00\x00')[0]
+URC_PY_SIGN = struct.unpack('!H', b'\x01\x01')[0]
+
+
 
 rand = lambda n : os.urandom(n)
 
@@ -54,34 +61,40 @@ _RE_AWAY_OFF_CMD = '^(AWAY) ?$'
 # -- end lameass regexp block
 
 # -- being crypto stuff
-#
-#_SIG_SIZE = libnacl.crypto_sign_BYTES
-#
-#def nacl_verify(m, s, pk):
-#    """
-#    verify message m with signature s for public key pk
-#    """
-#    libnacl.crypto_sign_open(s+m, pk)
-#
-#def nacl_sign(m, sk):
-#    """
-#    sign message m with secret key sk
-#    return signature
-#    """
-#    s = libnacl.crypto_sign(m,sk)
-#    return s[:_SIG_SIZE]
-#
-#
-#def test_crypto(data=rand(8)):
-#    pk , sk = libnacl.crypto_sign_keypair()
-#    sig = nacl_sign(data, sk)
-#    nacl_verify(data, sig, pk)
-#
-#test_crypto()
-#
-#def pubkey2bin(pk):
-#    return binascii.unhexlify(pk)
-#
+
+_SIG_SIZE = libnacl.crypto_sign_BYTES
+
+def nacl_keygen(seed=None):
+    """
+    generate nacl keypair
+    """
+    if not seed:
+        seed = libnacl.randombytes(libnacl.crypto_sign_SEEDBYTES)
+    sk, vk = libnacl.crypto_sign_seed_keypair(seed)
+    return sk, vk, seed
+
+def nacl_verify(m, s, pk):
+    """
+    verify message m with signature s for public key pk
+    """
+    libnacl.crypto_sign_open(s+m, pk)
+
+def nacl_sign(m, sk):
+    """
+    sign message m with secret key sk
+    return signed message
+    """
+    s = libnacl.crypto_sign(m,sk)[:_SIG_SIZE]
+    print (len(s), _SIG_SIZE)
+    assert len(s) == _SIG_SIZE
+    return s 
+
+def pubkey2bin(pk):
+    return binascii.unhexlify(pk)
+
+def bin2pubkey(bin):
+    return binascii.hexlify(bin).decode('ascii')
+
 # -- end crypto stuff
 
 # -- begin irc functions
@@ -180,20 +193,18 @@ def parse_urcline(line):
     if m:
         return m.groups()
 
-def mk_hubpkt(pktdata, pkttype=0):
+def mk_hubpkt(pktdata, pkttype=URC_PLAIN):
     """
     make urc hub packet
     """
-    if pkttype != 0:
-        return None
     data = bytes()
     pktlen = len(pktdata)
-    #if pkttype == 1:
-    #    pktlen += _SIG_SIZE
+    if pkttype == URC_PY_SIGN:
+        pktlen += _SIG_SIZE
     data += struct.pack('!H', pktlen) # packet length
     data += taia96n_now() # timestamp
-    data += struct.pack('!B', pkttype) # packet type
-    data += b'\x00\x00\x00'
+    data += struct.pack('!H', pkttype) # packet type
+    data += b'\x00\x00'
     data += rand(8) # 64 bit random
     data += pktdata
     return data
@@ -252,7 +263,6 @@ class urc_hub_connection:
     def __init__(self, urcd, r, w):
         self.urcd = urcd
         self.r, self.w = r, w
-        self._lock = asyncio.Lock()
         inject_log(self)
 
     @asyncio.coroutine
@@ -271,7 +281,7 @@ class urc_hub_connection:
         self.log.debug('read packet len={}'.format(pktlen))
         tsec, tnano = taia96n_parse(raw[2:14])
         self.log.debug('packet time {}'.format(tsec))
-        pkttype = struct.unpack('!BB', raw[14:16])[0]
+        pkttype = struct.unpack('!H', raw[14:16])[0]
         self.log.debug('pkttype={}'.format(pkttype))
         return raw, pktlen, tsec, tnano, pkttype
 
@@ -665,6 +675,7 @@ class IRCD:
         """
         read motd file
         """
+        yield 'our public key is {}'.format(self.urcd.pubkey())
         if os.path.exists(fname):
             with open(fname) as f:
                 for line in f.read().split('\n'):
@@ -817,6 +828,14 @@ class URCD:
     """
 
     def __init__(self, sign=True, name='urc.py'):
+        inject_log(self)
+        self.sign = sign
+        if sign:
+            self.loadkey()
+            self.log.info('our pubkey is {}'.format(self.pubkey()))
+        else:
+            self.pk = None
+            self.sk = None
         self.name = name
         self.admin = AdminUI(self)
         self.ircd = IRCD(self, self.admin.handle_admin, self.admin.check_auth, self.admin.handle_auth)
@@ -825,9 +844,18 @@ class URCD:
         self.hooks = list()
         self.loop = asyncio.get_event_loop()
         self._urc_cache = _bloom_filter(32 * 1024, 4)
-        inject_log(self)
         self.loop.call_later(1, self._persist_hubs)
 
+    def loadkey(self, keyfile='privkey.dat'):
+        if os.path.exists(keyfile):
+            with open(keyfile, 'rb') as rf:
+                seed = rf.read()
+            self.sk, self.pk, seed = nacl_keygen(seed)
+        else:
+            self.sk, self.pk, seed = nacl_keygen()
+            with open(keyfile, 'wb') as wf:
+                wf.write(seed)
+        
     def _persist_hub(self, addr):
         """
         persist hub connection, connect out
@@ -839,6 +867,13 @@ class URCD:
             self.persist_hubs[addr] = None
             return
         self.persist_hubs[addr] = con
+
+
+    def pubkey(self):
+        """
+        get ascii representation of our public key
+        """
+        return self.pk and bin2pubkey(self.pk) or 'not made'
         
     def _persist_hubs(self):
         """
@@ -870,7 +905,12 @@ class URCD:
         if isinstance(urcline, str):
             urcline = urcline.encode('utf-8')
         self.log.info('broadcast {}'.format(urcline))
-        pktdata = mk_hubpkt(urcline)
+        msgtype = URC_PLAIN
+        sig = bytearray()
+        if self.sign:
+            msgtype = URC_PY_SIGN
+            sig = nacl_sign(self.sk, urcline)
+        pktdata = mk_hubpkt(urcline, msgtype) + sig
         self._urc_cache.add(pktdata)
         asyncio.async(self.forward_hub_packet(None, pktdata))
 
@@ -1017,7 +1057,7 @@ class URCD:
             self.log.info('bad timestamp')
         elif raw not in self._urc_cache:
             pubkey = None
-            if pkttype == 1:
+            if pkttype == URC_PY_SIGN:
                 sig = data[0-_SIG_SIZE:]
                 body = raw[:0-_SIG_SIZE]
                 self.log.debug('sig is %s' % [sig])
@@ -1036,13 +1076,16 @@ class URCD:
                         continue
                         
             self._urc_cache.add(raw)
-            if pubkey is not None or pkttype == 0:
-                _data = data.decode('utf-8')                 
-                parsed = parse_urcline(_data)
-                if parsed:
-                    src, cmd, dst, msg = parsed
-                    self.ircd.urc_activity(src, cmd, dst, msg)
-            asyncio.async(self.forward_hub_packet(con, raw))
+            if pkttype == URC_PY_SIGN and pubkey is None:
+                data = data[:0-_SIG_SIZE]
+            _data = data.decode('utf-8')
+            parsed = parse_urcline(_data)
+            if parsed:
+                src, cmd, dst, msg = parsed
+            if pubkey == None and pkttype == URC_PY_SIGN:
+                src = 'fakeuser!lamer@spoof'
+            self.ircd.urc_activity(src, cmd, dst, msg)
+        asyncio.async(self.forward_hub_packet(con, raw))
         asyncio.async(self._get_hub_packet(con))
 
 
