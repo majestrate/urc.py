@@ -1082,9 +1082,9 @@ class URCD:
             parsed = parse_urcline(_data)
             if parsed:
                 src, cmd, dst, msg = parsed
-            if pubkey == None and pkttype == URC_PY_SIGN:
-                src = 'fakeuser!lamer@spoof'
-            self.ircd.urc_activity(src, cmd, dst, msg)
+                if pubkey == None and pkttype == URC_PY_SIGN:
+                    src = 'fakeuser!lamer@spoof'
+                self.ircd.urc_activity(src, cmd, dst, msg)
         asyncio.async(self.forward_hub_packet(con, raw))
         asyncio.async(self._get_hub_packet(con))
 
