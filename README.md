@@ -43,13 +43,12 @@ active hubs:
 
 * allyour4nert7pkh.onion
 * cbadanhgoo6oamul.onion
+* freeanonine7mgki.onion
 
 active channels:
 
 * #anonet
 * #overchan
-* #urc
-* #newfags
 
 
 
