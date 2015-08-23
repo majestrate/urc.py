@@ -12,6 +12,7 @@ import asyncio
 from random import randrange, Random, randint
 import random
 import string
+import socket
 import time
 import logging
 import os
@@ -955,12 +956,16 @@ class URCD:
         connect out to a hub
         """
         hub = '{} {}'.format(host, port)
+        self.persist_hubs[hub] = 0
 
         self.log.info('connecting to hub at {} port {}'.format(host, port))
-        r, w = yield from asyncio.open_connection(self.socks_host, self.socks_port)
-        self.persist_hubs[hub] = 0
-        result = yield from self._socks_handshake(r, w, host, port)
-        self.log.debug('socks = {}'.format(result))
+        if self.use_socks:
+            r, w = yield from asyncio.open_connection(self.socks_host, self.socks_port)
+            result = yield from self._socks_handshake(r, w, host, port)
+            self.log.debug('socks = {}'.format(result))
+        else:
+            r, w = yield from asyncio.open_connection(host, port)
+            result = True
         if result is True:
             self.log.info('connected to hub at {} port {}'.format(host, port))
             con = self._new_hub_connection(r, w)
@@ -1110,6 +1115,7 @@ def main():
     ap.add_argument('--log', type=str, default='warn')
     ap.add_argument('--irc', type=str, default='::1')
     ap.add_argument('--irc-port', type=int, default=6667)
+    ap.add_argument('--no-socks', action='store_const', const=True, default=False)
     ap.add_argument('--socks-host', type=str, default='127.0.0.1')
     ap.add_argument('--socks-port', type=str, default=9150)
     ap.add_argument('--remote-hub', type=str, default='allyour4nert7pkh.onion')
@@ -1125,8 +1131,10 @@ def main():
     logging.basicConfig(level = loglvl, format='%(asctime)s [%(levelname)s] %(name)s : %(message)s')
 
     urcd = URCD(sign=args.sign.lower() == 'yes')
-    urcd.socks_host = args.socks_host
-    urcd.socks_port = args.socks_port
+    urcd.use_socks = not args.no_socks
+    if urcd.use_socks:
+        urcd.socks_host = args.socks_host
+        urcd.socks_port = args.socks_port
     try:
         urcd.bind_ircd(args.irc, args.irc_port)
         urcd.connect_hub(args.remote_hub, args.remote_hub_port)
