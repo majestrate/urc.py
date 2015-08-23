@@ -30,11 +30,17 @@ Basic Usage:
     # connect to main hub on default port
     python3.4 urc.py 
 
+Direct connections:
+
+    # to not use a socks proxy by default use the --no-socks flag
+    python3.4 urc.py --no-socks --remote-hub urc.someplace.tld
+
 Advanced usage:
 
     # establish a hub connection to <remote_hub_address> on port 6666
     # provide hub connection on port 6666 from your_address
-    python3.4 urc.py --remote-hub <remote_hub_address> --remote-port 6666 --hub <your_address> --port 6666
+    # connect with a socks proxy at 127.0.0.1 9050
+    python3.4 urc.py --remote-hub <remote_hub_address> --remote-port 6666 --hub <your_address> --port 6666 --socks-port 9050 --socks-host 127.0.0.1
 
 
 Connect to ::1 as irc server to talk to the network
