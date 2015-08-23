@@ -967,8 +967,13 @@ class URCD:
             result = yield from self._socks_handshake(r, w, host, port)
             self.log.debug('socks = {}'.format(result))
         else:
-            r, w = yield from asyncio.open_connection(host, port)
-            result = True
+            try:
+                r, w = yield from asyncio.open_connection(host, port)
+            except Exception as e:
+                self.log.info('error connecting to {} {} {}'.format(host, port, e))
+                return
+            else:
+                result = True
         if result is True:
             self.log.info('connected to hub at {} port {}'.format(host, port))
             con = self._new_hub_connection(r, w)
