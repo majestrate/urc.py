@@ -21,6 +21,8 @@ Install Requirements:
     # check out source code
     git clone https://github.com/majestrate/urc.py/
     cd urc.py/
+    # get libnacl
+    pip3 install --user libnacl
 
 Basic Usage:
 
