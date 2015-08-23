@@ -890,6 +890,9 @@ class URCD:
         """
         forward URCLINE from connection
         """
+        sleeptime = random.randint(100, 1000)
+        self.log.info("sleep {}ms".format(sleeptime))
+        yield from asyncio.sleep(float(sleeptime) / 1000.0)
         for k in self.persist_hubs:
             con = self.persist_hubs[k]
             if con is not 0 and con is not None:
