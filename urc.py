@@ -984,7 +984,7 @@ class URCD:
         """
         self.log.info('hub disconnceted')
         if con.addr in self.persist_hubs:
-            self.persist_hubs.pop(con.addr)
+            self.persist_hubs[con.addr] = None
         if con in self.hubs:
             self.hubs.remove(con)
         
