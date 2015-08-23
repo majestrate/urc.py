@@ -14,3 +14,5 @@ The first field is a 16bit length (LEN) in network byte order. While 16bit LEN c
     :nick!user@host TOPIC #channel :topic goes here\n
 
 also see the original protocol spec [here](http://anonet2.biz/URC)
+
+replays are filtered out with a bloom filter

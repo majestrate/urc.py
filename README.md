@@ -15,6 +15,7 @@ Work In progress.
 Requirements:
 
 * python 3.4
+* libnacl
 
 Install Requirements:
 
@@ -34,7 +35,6 @@ Advanced usage:
     # establish a hub connection to <remote_hub_address> on port 6666
     # provide hub connection on port 6666 from your_address
     python3.4 urc.py --remote-hub <remote_hub_address> --remote-port 6666 --hub <your_address> --port 6666
-
 
 
 Connect to ::1 as irc server to talk to the network
