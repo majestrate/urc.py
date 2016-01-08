@@ -8,7 +8,7 @@ URC stands for URC Relay Chat, protocol orginally created by d3v11.
 URC is an NIH-inspired IRC-like protocol that uses optinally signed messages over tcp
 connections in a broadcast like fashion, maybe it'll become routed using Kademlia later you never know.
 No hub level authentication yet, maybe that will come later.
-urc.py is a simple implementation of [urcd](https://github.com/d3v11b0t/urcd) that probably sucks less.
+urc.py is a simple implementation of [urcd](https://github.com/JosephSWilliams/urcd/) that probably sucks less.
 
 Requirements:
 
@@ -53,7 +53,7 @@ Connect to 127.0.0.1 port 6667 as irc server to talk to the network
 
 active hubs:
 
-see [this](https://github.com/JosephSWilliams/urcd/tree/master/db/urchub) repo
+* see [this](https://github.com/JosephSWilliams/urcd/tree/master/db/urchub) repo
 
 "active" channels:
 
