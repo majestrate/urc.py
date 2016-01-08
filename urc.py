@@ -1121,7 +1121,7 @@ def main():
     ap = argparse.ArgumentParser()
 
     ap.add_argument('--log', type=str, default='warn')
-    ap.add_argument('--irc', type=str, default='::1')
+    ap.add_argument('--irc', type=str, default='localhost')
     ap.add_argument('--irc-port', type=int, default=6667)
     ap.add_argument('--no-socks', action='store_const', const=True, default=False)
     ap.add_argument('--socks-host', type=str, default='127.0.0.1')
