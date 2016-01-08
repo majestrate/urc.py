@@ -67,14 +67,14 @@ active hubs:
 
 TODO:
 
-* make irc ui usable
-* automagic PKI management
-* configuration files
-* manage public keys via irc ui
-* manage toggling of drop rules via irc ui
-* use json for pubkeys?
-* modularize?
-* ratelimiting
+* make irc ui better
+* automagic PKI management ?
+* configuration files ?
+* manage public keys via irc ui ?
+* manage toggling of drop rules via irc ui ?
+* use json for pubkeys ?
+* modularize ?
+* ratelimiting ?
 
 TODO IRC UI:
 
