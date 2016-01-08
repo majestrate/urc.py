@@ -19,7 +19,11 @@ import os
 from hashlib import sha256
 
 # for urc_sign
-import libnacl
+try:
+    import libnacl
+except ImportError:
+    libnacl = None
+    print ('no libnacl, will not sign')
 
 
 # -- urc message types
