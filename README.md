@@ -10,8 +10,6 @@ connections in a broadcast like fashion, maybe it'll become routed using Kademli
 No hub level authentication yet, maybe that will come later.
 urc.py is a simple implementation of [urcd](https://github.com/d3v11b0t/urcd) that probably sucks less.
 
-Work In progress.
-
 Requirements:
 
 * python 3.4
@@ -35,23 +33,29 @@ Direct connections:
     # to not use a socks proxy by default use the --no-socks flag
     python3.4 urc.py --no-socks --remote-hub urc.someplace.tld
 
+Running A hub over tor:
+
+    # append this to /etc/tor/torrc
+    HiddenServiceDir /var/lib/tor/urc
+    HiddenServicePort 6789 127.0.0.1:6789
+
+your onion address will be in `/var/lib/tor/urc/hostname`
+
 Advanced usage:
 
     # establish a hub connection to <remote_hub_address> on port 6666
-    # provide hub connection on port 6666 from your_address
+    # provide hub connection on port 6666 from <your_address>
     # connect with a socks proxy at 127.0.0.1 9050
     python3.4 urc.py --remote-hub <remote_hub_address> --remote-port 6666 --hub <your_address> --port 6666 --socks-port 9050 --socks-host 127.0.0.1
 
 
-Connect to ::1 as irc server to talk to the network
+Connect to 127.0.0.1 port 6667 as irc server to talk to the network
 
 active hubs:
 
-* allyour4nert7pkh.onion
-* cbadanhgoo6oamul.onion
-* freeanonine7mgki.onion
+see [this](https://github.com/JosephSWilliams/urcd/tree/master/db/urchub) repo
 
-active channels:
+"active" channels:
 
 * #anonet
 * #overchan
