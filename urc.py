@@ -67,7 +67,7 @@ _RE_AWAY_OFF_CMD = '^(AWAY) ?$'
 
 # -- being crypto stuff
 
-_SIG_SIZE = libnacl.crypto_sign_BYTES
+_SIG_SIZE = libnacl and libnacl.crypto_sign_BYTES or 0
 
 def nacl_keygen(seed=None):
     """
