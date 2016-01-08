@@ -12,6 +12,7 @@ urc.py is a simple implementation of [urcd](https://github.com/JosephSWilliams/u
 
 Requirements:
 
+* tor
 * python 3.4
 * libsodium
 * python-libnacl
