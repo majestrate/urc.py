@@ -45,7 +45,7 @@ _RE_CMD = '[A-Z]+'
 _RE_URCLINE = '^:(%s) (%s) ?(%s|%s)? ?:(.+)$' % (_RE_SRC, _RE_CMD, _RE_CHAN, _RE_NICK)
 
 _RE_SRC_CMD = '([%s]+)!([~%s]+)@([%s]+)' % ( ( _RE_CHARS, ) * 3 )
-_RE_NICK_CMD = '^NICK (%s)' % _RE_NICK
+_RE_NICK_CMD = '^NICK ?:(%s)' % _RE_NICK
 _RE_USER_CMD = '^USER (%s) [%s\\*]+ [%s\\*]+ :%s' % ( _RE_NICK, _RE_CHARS, _RE_CHARS, _RE_NICK )
 _RE_PRIVMSG_CMD = '^PRIVMSG (%s|%s) :(.+)$' % (_RE_NICK, _RE_CHAN)
 _RE_JOIN_CMD = '^JOIN (%s)' % _RE_CHAN
