@@ -42,6 +42,8 @@ Running A hub over tor:
 
 your onion address will be in `/var/lib/tor/urc/hostname`
 
+others can connect to your hub via `python3.4 urc.py --remote-hub=something.onion` given that `something.onion` is the onion address in `/var/lib/tor/urc/hostname`
+
 Advanced usage:
 
     # establish a hub connection to <remote_hub_address> on port 6666
