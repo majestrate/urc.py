@@ -1132,6 +1132,7 @@ def main():
     ap.add_argument('--socks-port', type=str, default=9050)
     ap.add_argument('--remote-hub', type=str, default='psii2p655trtnvru.onion')
     ap.add_argument('--remote-hub-port', type=int, default=6789)
+    ap.add_argument('--hubs-file', type=str, default=None)
     ap.add_argument('--hub', type=str, default='127.0.0.1')
     ap.add_argument('--hub-port', type=int, default=6789)
     ap.add_argument('--sign',type=str, default='no')
@@ -1152,6 +1153,18 @@ def main():
         urcd.connect_hub(args.remote_hub, args.remote_hub_port)
         if args.hub:
             urcd.bind_hub(args.hub, args.hub_port)
+        if args.hubs_file:
+            with open(args.hubs_file) as f:
+                for line in f:
+                    line = line.replace(' ', '')
+                    if len(line) == 0 or line[0] == '#':
+                        continue
+                    parts = line.split(':')
+                    host = parts[0]
+                    port = 6789
+                    if len(parts) == 2:
+                        port = int(parts[1])
+                    urcd.connect_hub(host, port)
         urcd.loop.run_forever()
     finally:
         urcd.loop.close()

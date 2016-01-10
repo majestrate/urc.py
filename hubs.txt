@@ -1,0 +1,11 @@
+# psi hub 1
+allyour4nert7pkh.onion:6789
+
+# psi hub 2
+psii2p655trtnvru.onion:6789
+
+# some rando hub
+ntwrkhhtqv73vwd4.onion:6789
+
+# free anons hub
+freeanonine7mgki.onion:6789

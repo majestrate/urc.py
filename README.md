@@ -55,6 +55,8 @@ Advanced usage:
 
 Connect to 127.0.0.1 port 6667 as irc server to talk to the network
 
+To connect to many hubs at once add the flag `--hubs-file=/path/to/hubs.txt` where hubs.txt has the list of hubs you want to connect to
+
 active hubs:
 
 * see [this](https://github.com/JosephSWilliams/urcd/tree/master/db/urchub) repo
