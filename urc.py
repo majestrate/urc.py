@@ -1136,6 +1136,7 @@ def main():
     ap.add_argument('--hub', type=str, default='127.0.0.1')
     ap.add_argument('--hub-port', type=int, default=6789)
     ap.add_argument('--sign',type=str, default='no')
+    ap.add_argument('--name', type=str, default='urc.py')
     
     args = ap.parse_args()
 
@@ -1143,7 +1144,7 @@ def main():
 
     logging.basicConfig(level = loglvl, format='%(asctime)s [%(levelname)s] %(name)s : %(message)s')
 
-    urcd = URCD(sign=args.sign.lower() == 'yes')
+    urcd = URCD(sign=args.sign.lower() == 'yes', name=args.name)
     urcd.use_socks = not args.no_socks
     if urcd.use_socks:
         urcd.socks_host = args.socks_host
