@@ -1073,6 +1073,7 @@ class URCD:
         if self._bad_timestamp(tstamp):
             self.log.info('bad timestamp')
         elif raw not in self._urc_cache:
+            self._urc_cache.add(raw)
             pubkey = None
             if pkttype == URC_PY_SIGN:
                 sig = data[0-_SIG_SIZE:]
@@ -1092,7 +1093,7 @@ class URCD:
                         self.log.debug('not key {} because {}'.format(key, e))
                         continue
                         
-            self._urc_cache.add(raw)
+
             if pkttype == URC_PY_SIGN and pubkey is None:
                 data = data[:0-_SIG_SIZE]
             _data = data.decode('utf-8')
@@ -1102,7 +1103,7 @@ class URCD:
                 if pubkey == None and pkttype == URC_PY_SIGN:
                     src = 'fakeuser!lamer@spoof'
                 self.ircd.urc_activity(src, cmd, dst, msg)
-        asyncio.async(self.forward_hub_packet(con, raw))
+            asyncio.async(self.forward_hub_packet(con, raw))
         asyncio.async(self._get_hub_packet(con))
 
 
