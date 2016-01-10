@@ -8,7 +8,7 @@ Type=simple
 ProtectHome=true
 ProtectSystem=true
 User=nobody
-ExecStart=/opt/urc/urc.py --remote-hub=ntwrkhhtqv73vwd4.onion --socks-port=9050 --hub=127.0.0.1
+ExecStart=/opt/urc/urc.py --name=system.dix --hubs-file=/opt/urc/hubs.txt
 Restart=always
 
 [Install]
