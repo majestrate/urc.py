@@ -1156,7 +1156,7 @@ def main():
         if args.hubs_file:
             with open(args.hubs_file) as f:
                 for line in f:
-                    line = line.replace(' ', '')
+                    line = line.replace(' ', '').replace('\n', '').replace('\r', '')
                     if len(line) == 0 or line[0] == '#':
                         continue
                     parts = line.split(':')
