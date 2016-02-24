@@ -1,11 +1,18 @@
 #!/usr/bin/env python3.4
 # 
-# urc.py
+# urc.py -- one long long horrible python script
 #
 # monolithic urc hub in python because urcd sucks ass
 #
 # public domain
 #
+
+
+# for hexchat
+__module_name__ = "urc"
+__module_version__ = "0.1"
+__module_description__ = "urc network plugin"
+
 import binascii
 import struct
 import asyncio
@@ -16,22 +23,40 @@ import socket
 import time
 import logging
 import os
+import threading
 from hashlib import sha256
 
+try:
+    import hexchat
+except ImportError:
+    hexchat = None
+
+def prnt(*args):
+    if hexchat:
+        s = ''
+        for arg in args:
+            s += '{}'.format(arg)
+        hexchat.prnt(s)
+    else:
+        print (args)
+    
 # for urc_sign
 try:
+    prnt("trying to load libnacl")
     import libnacl
 except ImportError:
+    prnt("no libnacl, will not do signed messages")
     libnacl = None
-    print ('no libnacl, will not sign')
-
+else:
+    prnt("libnacl loaded")
 
 # -- urc message types
 URC_PLAIN = struct.unpack('!H', b'\x00\x00')[0]
+URC_SIGN = struct.unpack('!H', b'\x01\x00')[0]
 URC_PY_SIGN = struct.unpack('!H', b'\x01\x01')[0]
 
 
-
+# -- not cryptographically secure random for non encryption uses
 rand = lambda n : os.urandom(n)
 
 # i don't like regular expressions
@@ -82,17 +107,18 @@ def nacl_verify(m, s, pk):
     """
     verify message m with signature s for public key pk
     """
-    libnacl.crypto_sign_open(s+m, pk)
+    if libnacl:
+        libnacl.crypto_sign_open(s+m, pk)
 
 def nacl_sign(m, sk):
     """
     sign message m with secret key sk
     return signed message
     """
-    s = libnacl.crypto_sign(m,sk)[:_SIG_SIZE]
-    print (len(s), _SIG_SIZE)
-    assert len(s) == _SIG_SIZE
-    return s 
+    if libnacl:
+        s = libnacl.crypto_sign(m,sk)[:_SIG_SIZE]
+        assert len(s) == _SIG_SIZE
+        return s 
 
 def pubkey2bin(pk):
     return binascii.unhexlify(pk)
@@ -227,7 +253,7 @@ class _log:
         self.error = self._logit
     
     def _logit(self, *args):
-        print ('>> ', *args)
+        prnt ('<urc.py> '+''.join(args))
 
 def inject_log(obj, native_log=True):
     """
@@ -832,7 +858,7 @@ class URCD:
     urcd server context
     """
 
-    def __init__(self, sign=True, name='urc.py'):
+    def __init__(self, sign=True, name='urc.py', irc=True, loop=None):
         inject_log(self)
         self.sign = sign
         if sign:
@@ -842,13 +868,23 @@ class URCD:
             self.pk = None
             self.sk = None
         self.name = name
-        self.admin = AdminUI(self)
-        self.ircd = IRCD(self, self.admin.handle_admin, self.admin.check_auth, self.admin.handle_auth)
+        if irc:
+            self.admin = AdminUI(self)
+            self.ircd = IRCD(self, self.admin.handle_admin, self.admin.check_auth, self.admin.handle_auth)
+        else:
+            self.admin = None
+            self.ircd = None
+        if loop is not None:
+            self.loop = loop
+        else:
+            self.loop = asyncio.get_event_loop()
+        self.gui = None
         self.hubs = list()
         self.persist_hubs = dict()
         self.hooks = list()
-        self.loop = asyncio.get_event_loop()
         self._urc_cache = _bloom_filter(32 * 1024, 4)
+
+    def start(self):
         self.loop.call_later(1, self._persist_hubs)
 
     def loadkey(self, keyfile='privkey.dat'):
@@ -886,7 +922,7 @@ class URCD:
         """
         for addr in self.persist_hubs:
             if self.persist_hubs[addr] is None:
-                asyncio.async(self._persist_hub(addr))
+                asyncio.async(self._persist_hub(addr), loop=self.loop)
         self.loop.call_later(1, self._persist_hubs)
         
     @asyncio.coroutine
@@ -896,15 +932,15 @@ class URCD:
         """
         sleeptime = random.randint(100, 1000)
         self.log.info("sleep {}ms".format(sleeptime))
-        _ = yield from asyncio.sleep(float(sleeptime) / 1000.0)
+        _ = yield from asyncio.sleep(float(sleeptime) / 1000.0, loop=self.loop)
         for k in self.persist_hubs:
             con = self.persist_hubs[k]
             if con is not 0 and con is not None:
                 if con != connection:
-                    asyncio.async(con.send_hub_packet(pkt))
+                    asyncio.async(con.send_hub_packet(pkt), loop=self.loop)
         for con in self.hubs:
             if con != connection:
-                asyncio.async(con.send_hub_packet(pkt))
+                asyncio.async(con.send_hub_packet(pkt), loop=self.loop)
 
     def broadcast(self, urcline):
         """
@@ -920,7 +956,7 @@ class URCD:
             sig = nacl_sign(self.sk, urcline)
         pktdata = mk_hubpkt(urcline, msgtype) + sig
         self._urc_cache.add(pktdata)
-        asyncio.async(self.forward_hub_packet(None, pktdata))
+        asyncio.async(self.forward_hub_packet(None, pktdata), loop=self.loop)
 
         
     def _new_hub_connection(self, r, w):
@@ -928,7 +964,7 @@ class URCD:
         called when we got a new hub connection
         """
         con = urc_hub_connection(self, r, w)
-        asyncio.async(self._get_hub_packet(con))
+        asyncio.async(self._get_hub_packet(con), loop=self.loop)
         return con
 
     def _socks_handshake(self, r, w, host, port):
@@ -965,26 +1001,26 @@ class URCD:
         hub = '{} {}'.format(host, port)
         self.persist_hubs[hub] = 0
 
-        self.log.info('connecting to hub at {} port {}'.format(host, port))
-        if self.use_socks:
-            r, w = yield from asyncio.open_connection(self.socks_host, self.socks_port)
+        prnt('connecting to hub at {} port {}'.format(host, port))
+        if hasattr(self, 'use_socks') and self.use_socks:
+            r, w = yield from asyncio.open_connection(self.socks_host, self.socks_port, loop=self.loop)
             result = yield from self._socks_handshake(r, w, host, port)
             self.log.debug('socks = {}'.format(result))
         else:
             try:
-                r, w = yield from asyncio.open_connection(host, port)
+                r, w = yield from asyncio.open_connection(host, port, loop=self.loop)
             except Exception as e:
-                self.log.info('error connecting to {} {} {}'.format(host, port, e))
+                prnt('error connecting to {} {} {}'.format(host, port, e))
                 return
             else:
                 result = True
         if result is True:
-            self.log.info('connected to hub at {} port {}'.format(host, port))
+            prnt('connected to hub at {} port {}'.format(host, port))
             con = self._new_hub_connection(r, w)
             con.addr = hub
             return con
         else:
-            self.log.warn('connection to hub at {} port {} failed'.format(host, port))
+            prnt('connection to hub at {} port {} failed'.format(host, port))
             w.close()
  
     def disconnected(self, con):
@@ -1005,6 +1041,25 @@ class URCD:
         self.log.info('connect to hub at {} port {}'.format(host, port))
         self.persist_hubs['{} {}'.format(host,port)] = None
 
+    def disconnect(self):
+        self.loop.call_soon(self._disconnnect_all)
+
+    def _disconnnect_all(self):
+        hub_keys = list(self.persist_hubs.keys())
+        for key in hub_keys:
+            self._remove_hub(key)
+        
+    def disconnect_hub(self, host, port):
+        self.loop.call_soon(self._remove_hub, "{} {}".format(host, port))
+
+    def _remove_hub(self, name):
+        if name in self.persist_hubs:
+            hub = self.persist_hubs[name]
+            if hub:
+                hub.close()
+            del self.persist_hubs[name]
+            prnt("disconnected from {}".format(name))
+        
     def _incoming_hub(self, r, w):
         """
         incoming hub connection
@@ -1018,14 +1073,15 @@ class URCD:
         """
         bind ircd to host:port
         """
-        asyncio.async(asyncio.start_server(self.ircd.incoming_connection, host, port))
-        self.log.info('bind ircd to {} port {}'.format(host,port))
+        if self.ircd:
+            asyncio.async(asyncio.start_server(self.ircd.incoming_connection, host, port), loop=self.loop)
+            self.log.info('bind ircd to {} port {}'.format(host,port))
 
     def bind_hub(self, host, port):
         """
         bind server to host:port
         """
-        asyncio.async(asyncio.start_server(self._incoming_hub, host, port))
+        asyncio.async(asyncio.start_server(self._incoming_hub, host, port), loop=self.loop)
         self.log.info('bind hub to {} port {}'.format(host,port))        
     
 
@@ -1054,7 +1110,7 @@ class URCD:
             self.disconnected(con)
             raise e
         else:
-            asyncio.async(self._handle_hub_packet(con, raw, data, pkttype, tstamp))
+            asyncio.async(self._handle_hub_packet(con, raw, data, pkttype, tstamp), loop=self.loop)
 
     def _bad_timestamp(self, tstamp, dlt=128):
         """
@@ -1062,8 +1118,28 @@ class URCD:
         """
         nowsec, nownano = taia96n()
         thensec, thennano = tstamp
-        return abs(nowsec - thensec) > dlt
+        if abs(nowsec - thensec) > dlt:
+            self.log.debug(nowsec - thensec)
+            return True
+        return False
 
+    def urc_activity(self, src, cmd, dst, msg):
+        """
+        called when we got a message from urc
+        """
+        if self.ircd:
+            self.ircd.urc_activity(src, cmd, dst, msg)
+        if self.gui:
+            if dst and dst[0] in ['#', '&', '+', '$']:
+                ctx = self.gui.find_context(channel=dst)
+                if ctx:
+                    ev = "Channel Message"
+                    if cmd != "PRIVMSG":
+                        ctx.prnt(":{} {} {} :{}".format(src, cmd, dst, msg))
+                    else:
+                        src = src.split("!")[0]
+                        ctx.emit_print(ev, "<<{}>>".format(src), msg, "")
+    
     @asyncio.coroutine
     def _handle_hub_packet(self, con, raw, data, pkttype, tstamp):
         """
@@ -1075,6 +1151,10 @@ class URCD:
         elif raw not in self._urc_cache:
             self._urc_cache.add(raw)
             pubkey = None
+            if pkttype == URC_SIGN:
+                sig = raw[0-_SIG_SIZE:]
+                body = data
+                self.log.debug('urcsign sig={}, body={}'.format(sig, body))
             if pkttype == URC_PY_SIGN:
                 sig = data[0-_SIG_SIZE:]
                 body = raw[:0-_SIG_SIZE]
@@ -1096,16 +1176,23 @@ class URCD:
 
             if pkttype == URC_PY_SIGN and pubkey is None:
                 data = data[:0-_SIG_SIZE]
-            _data = data.decode('utf-8')
-            parsed = parse_urcline(_data)
-            if parsed:
-                src, cmd, dst, msg = parsed
-                if pubkey == None and pkttype == URC_PY_SIGN:
-                    src = 'fakeuser!lamer@spoof'
-                self.ircd.urc_activity(src, cmd, dst, msg)
-            asyncio.async(self.forward_hub_packet(con, raw))
-        asyncio.async(self._get_hub_packet(con))
+            try:
+                _data = data.decode('utf-8')
+            except UnicodeDecodeError:
+                pass
+            else:
+                parsed = parse_urcline(_data)
+                if parsed:
+                    src, cmd, dst, msg = parsed
+                    if pubkey == None and pkttype == URC_PY_SIGN:
+                        src = 'fakeuser!lamer@spoof'
+                    self.urc_activity(src, cmd, dst, msg)
+            asyncio.async(self.forward_hub_packet(con, raw), loop=self.loop)
+        asyncio.async(self._get_hub_packet(con), loop=self.loop)
 
+
+
+        
 
 def get_log_lvl(lvl):
     """
@@ -1121,6 +1208,71 @@ def get_log_lvl(lvl):
     if lvl == 'error':
         return logging.ERROR
 
+def urc_broadcast_hexchat(word, word_eol, userdata):
+    chnl = hexchat.get_info("channel")
+    if chnl:
+        try:
+            userdata.broadcast(':anon!user@hexchat PRIVMSG {} :{}\n'.format(chnl, word_eol[0]))
+        except Exception as e:
+            prnt("error in urc: {}".format(e))
+            
+
+def urc_command_hexchat(word, word_eol, userdata):
+    if len(word) < 2:
+        prnt("invalid use of urc command")
+        return hexchat.EAT_ALL
+    cmd = word[1]
+    if cmd == "connect":
+        host = "i2p.rocks"
+        port = 6789
+        if len(word) > 2:
+            host = word[2]
+        if len(word) > 3:
+            try:
+                port = int(word[3])
+            except ValueError:
+                prnt("invalid port: {}".format(word[3]))
+                return hexchat.EAT_ALL
+        prnt("connecting to hub at {}:{}".format(host,port))
+        userdata.connect_hub(host, port)
+        return hexchat.EAT_ALL
+    elif cmd == "disconnect":
+        if len(word) == 2:
+            userdata.disconnect()
+        elif len(word) > 2:
+            host = word[2]
+            port = 6789
+            if len(word) > 3:
+                try:
+                    port = int(word[3])
+                except ValueError:
+                    prnt("invalid port: {}".format(word[3]))
+                    return hexchat.EAT_ALL
+            userdata.disconnect_hub(host, port)
+        return hexchat.EAT_ALL
+        
+def urc_unload_hexchat(userdata):
+    try:
+        userdata.loop.close()
+    except Exception as e:
+        prnt("error unloading urc: {}".format(e))
+        
+if hexchat:
+    urcd = URCD(False, 'hexchat', False, False)
+    urcd.gui = hexchat
+    hexchat.hook_command('', urc_broadcast_hexchat, urcd)
+    hexchat.hook_command('urc', urc_command_hexchat, urcd)
+    hexchat.hook_unload(urc_unload_hexchat, urcd)
+    def runhub(urc):
+        prnt("starting up URC HUB")
+        urc.loop = asyncio.new_event_loop()
+        try:
+            urc.start()
+            urc.loop.run_forever()
+        except Exception as e:
+            prnt("error in urc mainloop: {}".format(e))
+    threading.Thread(target=runhub, args=(urcd,)).start()
+    
 def main():
     import argparse
     ap = argparse.ArgumentParser()
@@ -1173,4 +1325,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    if hexchat:
+        pass
+    else:
+        main()
