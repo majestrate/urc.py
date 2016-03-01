@@ -1102,13 +1102,10 @@ class URCD:
         try:
             self.log.debug('get packet')
             raw, data, pkttype, tstamp  = yield from con.get_hub_packet()
-        except asyncio.streams.IncompleteReadError:
+        except:
             con.close()
             self.disconnected(con)
-        except Exception as e:
-            self.log.error(e)
-            self.disconnected(con)
-            raise e
+            raise
         else:
             asyncio.async(self._handle_hub_packet(con, raw, data, pkttype, tstamp), loop=self.loop)
 
@@ -1256,7 +1253,6 @@ def urc_command_hexchat(word, word_eol, userdata):
                 prnt("invalid port: {}".format(word[3]))
                 return hexchat.EAT_ALL
         if len(host) > 0:
-            prnt("connecting to hub at {}:{}".format(host,port))
             userdata.connect_hub(host, port)
         else:
             prnt("cannot connect, no hub specificed")
