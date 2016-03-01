@@ -2,7 +2,7 @@
 # 
 # urc.py -- one long long horrible python script
 #
-# monolithic urc hub in python because urcd sucks ass
+# monolithic urc hub in python
 #
 # public domain
 #
@@ -1123,6 +1123,14 @@ class URCD:
             return True
         return False
 
+    def set_proxy(self, host, port):
+        """
+        set socks proxy
+        """
+        self.socks_host = host
+        self.socks_port = port
+        self.use_socks = True
+    
     def urc_activity(self, src, cmd, dst, msg):
         """
         called when we got a message from urc
@@ -1211,8 +1219,11 @@ def get_log_lvl(lvl):
 def urc_broadcast_hexchat(word, word_eol, userdata):
     chnl = hexchat.get_info("channel")
     if chnl:
+        nick = hexchat.get_info("nick")
+        if nick is None or len(nick) == 0:
+            nick = "anon"
         try:
-            userdata.broadcast(':anon!user@hexchat PRIVMSG {} :{}\n'.format(chnl, word_eol[0]))
+            userdata.broadcast(':{}!hexchat@urc.py.tld PRIVMSG {} :{}\n'.format(nick, chnl, word_eol[0]))
         except Exception as e:
             prnt("error in urc: {}".format(e))
             
@@ -1222,8 +1233,19 @@ def urc_command_hexchat(word, word_eol, userdata):
         prnt("invalid use of urc command")
         return hexchat.EAT_ALL
     cmd = word[1]
+    if cmd == "proxy":
+        if len(word) > 2:
+            host = word[2]
+        if len(word) > 3:
+            try:
+                port = int(word[3])
+            except ValueError:
+                prnt("invalid proxy port: {}".format(word[3]))
+                return hexchat.EAT_ALL
+        prnt("set proxy to {}:{}".format(host, port))
+        userdata.set_proxy(host, port)
     if cmd == "connect":
-        host = "i2p.rocks"
+        host = ""
         port = 6789
         if len(word) > 2:
             host = word[2]
@@ -1233,8 +1255,11 @@ def urc_command_hexchat(word, word_eol, userdata):
             except ValueError:
                 prnt("invalid port: {}".format(word[3]))
                 return hexchat.EAT_ALL
-        prnt("connecting to hub at {}:{}".format(host,port))
-        userdata.connect_hub(host, port)
+        if len(host) > 0:
+            prnt("connecting to hub at {}:{}".format(host,port))
+            userdata.connect_hub(host, port)
+        else:
+            prnt("cannot connect, no hub specificed")
         return hexchat.EAT_ALL
     elif cmd == "disconnect":
         if len(word) == 2:
@@ -1260,6 +1285,7 @@ def urc_unload_hexchat(userdata):
 if hexchat:
     urcd = URCD(False, 'hexchat', False, False)
     urcd.gui = hexchat
+    urcd.set_proxy("127.0.0.1", 9150)
     hexchat.hook_command('', urc_broadcast_hexchat, urcd)
     hexchat.hook_command('urc', urc_command_hexchat, urcd)
     hexchat.hook_unload(urc_unload_hexchat, urcd)
