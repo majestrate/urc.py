@@ -301,9 +301,11 @@ class urc_hub_connection:
         """
         yield a hub packet tuple , (raw_packet, packet_data, packet_type)
         """
-        hdr, pktlen, tsec, tnano, pkttype = yield from self._read_hdr()
-        data = yield from self._read_data(pktlen)
-        return hdr + data , data, pkttype, (tsec, tnano)
+        pkt = yield from self._read_hdr()
+        if pkt:
+            hdr, pktlen, tsec, tnano, pkttype = pkt
+            data = yield from self._read_data(pktlen)
+            return hdr + data , data, pkttype, (tsec, tnano)
 
     @asyncio.coroutine
     def _read_hdr(self):
@@ -1110,7 +1112,12 @@ class URCD:
         """
         try:
             self.log.debug('get packet')
-            raw, data, pkttype, tstamp  = yield from con.get_hub_packet()
+            
+            pkt = yield from con.get_hub_packet()
+            if pkt:
+                raw, data, pkttype, tstamp = pkt
+            else:
+                return
         except:
             con.close()
             self.disconnected(con)
