@@ -1257,6 +1257,9 @@ def urc_command_hexchat(word, word_eol, userdata):
         else:
             prnt("cannot connect, no hub specificed")
         return hexchat.EAT_ALL
+    elif cmd == "msg":
+        urc_broadcast_hexchat(word[1:], word_eol[1:], userdata)
+        return hexchat.EAT_ALL
     elif cmd == "disconnect":
         if len(word) == 2:
             userdata.disconnect()
@@ -1341,6 +1344,7 @@ def main():
                     if len(parts) == 2:
                         port = int(parts[1])
                     urcd.connect_hub(host, port)
+        urcd.start()
         urcd.loop.run_forever()
     finally:
         urcd.loop.close()
