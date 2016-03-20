@@ -399,8 +399,8 @@ class irc_handler:
                 asyncio.async(self._get_line())
    
     def change_nick(self, new_nick):
-        if self.daemon.has_nick(new_nick):
-            line = ':{} 433 {} :Nickname in use\n'.format(self.daemon.name, self.nick)
+        if self.daemon.anon or self.daemon.has_nick(new_nick):
+            line = ':{} 433 {} :{}\n'.format(self.daemon.name, self.nick, new_nick)
             asyncio.async(self.send_line(line))
         else:
             line = ':{}!{}@{} NICK {}\n'.format(self.nick,self.user, self.daemon.name, new_nick)
@@ -534,15 +534,21 @@ class irc_handler:
             self.daemon.disconnected(self)
         # NICK
         if self.nick is None and _nick is not None:
-            _nick = self.daemon.filter_nick(_nick[0])
-            self.nick = _nick
+            if self.daemon.anon:
+                self.nick = 'anon'
+            else:
+                _nick = self.daemon.filter_nick(_nick[0])
+                self.nick = _nick
         elif self.nick is not None and _nick is not None:
             _nick = self.daemon.filter_nick(_nick[0])
             self.change_nick(_nick)
             
         # USER
         if self.user is None and _user is not None:
-            self.user = _user[0]
+            if self.daemon.anon:
+                self.user = 'anon'
+            else:
+                self.user = _user[0]
         
         if self.greeted and self.ponged:
             # JOIN 
@@ -618,6 +624,7 @@ class IRCD:
 
     def __init__(self, urcd, controller, check_auth, do_auth):
         self.name = 'irc.%s.tld' % urcd.name
+        self.anon = True
         self.irc_cons = list()
         self.irc_chans = dict()
         self.urcd = urcd
@@ -1315,6 +1322,7 @@ def main():
     ap.add_argument('--hub-port', type=int, default=6789)
     ap.add_argument('--sign',type=str, default='no')
     ap.add_argument('--name', type=str, default='urc.py')
+    ap.add_argument('--no-anon', action='store_const', const=True, default=False)
     
     args = ap.parse_args()
 
@@ -1329,6 +1337,8 @@ def main():
         urcd.socks_port = args.socks_port
     try:
         urcd.bind_ircd(args.irc, args.irc_port)
+        if args.no_anon:
+            urcd.ircd.anon = False
         urcd.connect_hub(args.remote_hub, args.remote_hub_port)
         if args.hub:
             urcd.bind_hub(args.hub, args.hub_port)
