@@ -1003,12 +1003,12 @@ class URCD:
 
         prnt('connecting to hub at {} port {}'.format(host, port))
         if hasattr(self, 'use_socks') and self.use_socks:
-            r, w = yield from asyncio.open_connection(self.socks_host, self.socks_port, loop=self.loop)
-            result = yield from self._socks_handshake(r, w, host, port)
+            r, w = yield from asyncio.open_connection(self.socks_host, int(self.socks_port), loop=self.loop)
+            result = yield from self._socks_handshake(r, w, host, int(port))
             self.log.debug('socks = {}'.format(result))
         else:
             try:
-                r, w = yield from asyncio.open_connection(host, port, loop=self.loop)
+                r, w = yield from asyncio.open_connection(host, int(port), loop=self.loop)
             except Exception as e:
                 prnt('error connecting to {} {} {}'.format(host, port, e))
                 return
