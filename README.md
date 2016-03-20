@@ -51,11 +51,18 @@ Advanced usage:
     # provide hub connection on port 6666 from <your_address>
     # connect with a socks proxy at 127.0.0.1 9050
     python3.4 urc.py --remote-hub <remote_hub_address> --remote-port 6666 --hub <your_address> --port 6666 --socks-port 9050 --socks-host 127.0.0.1
-
+        
 
 Connect to 127.0.0.1 port 6667 as irc server to talk to the network
 
 To connect to many hubs at once add the flag `--hubs-file=/path/to/hubs.txt` where hubs.txt has the list of hubs you want to connect to
+
+Other flags:
+
+    --no-anon     # disable forced anon on local irc
+    --nick <name> # change the server name to irc.<name>.tld
+    
+
 
 active hubs:
 
