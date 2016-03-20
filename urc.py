@@ -1038,6 +1038,7 @@ class URCD:
         """
         urc hub has disconnected
         """
+        prnt ('hub connection to {} lost'.format(con.addr))
         self.log.info('hub disconnceted')
         if con.addr in self.persist_hubs:
             self.persist_hubs[con.addr] = None
