@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.4
+#!/usr/bin/env python3
 # 
 # urc.py -- one long long horrible python script
 #
