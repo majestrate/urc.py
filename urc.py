@@ -1314,7 +1314,7 @@ def main():
     ap.add_argument('--irc-port', type=int, default=6667)
     ap.add_argument('--no-socks', action='store_const', const=True, default=False)
     ap.add_argument('--socks-host', type=str, default='127.0.0.1')
-    ap.add_argument('--socks-port', type=str, default=9050)
+    ap.add_argument('--socks-port', type=str, default=9150)
     ap.add_argument('--remote-hub', type=str, default='psii2p655trtnvru.onion')
     ap.add_argument('--remote-hub-port', type=int, default=6789)
     ap.add_argument('--hubs-file', type=str, default=None)
