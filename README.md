@@ -27,12 +27,16 @@ Install Requirements:
 
 Basic Usage:
 
-    # connect to main hub on default port
-    python3.4 urc.py 
+    # connect to the default hub on default port (psii2p655trtnvru.onion port 6789) via the default tor browser socks proxy ( 127.0.0.1 port 9150 )
+    # binds irc server at 127.0.0.1 port 6667
+    python3.4 urc.py
+    # open up irc client and connect to server at 127.0.0.1
+    # in irssi it's /connect 127.0.0.1
+    # in hexchat it's /server 127.0.0.1
 
 Direct connections:
 
-    # to not use a socks proxy by default use the --no-socks flag
+    # to not use tor by default use the --no-socks flag
     python3.4 urc.py --no-socks --remote-hub urc.someplace.tld
 
 Running A hub over tor:
