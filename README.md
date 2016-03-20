@@ -21,9 +21,7 @@ Install Requirements:
 
     # check out source code
     git clone https://github.com/majestrate/urc.py/
-    cd urc.py/
-    # get libnacl
-    pip3 install --user libnacl
+    cd urc.py
 
 Basic Usage:
 
@@ -63,14 +61,23 @@ To connect to many hubs at once add the flag `--hubs-file=/path/to/hubs.txt` whe
 
 Other flags:
 
-    --no-anon     # disable forced anon on local irc
-    --nick <name> # change the server name to irc.<name>.tld
-    
+    --no-anon     # disable forced anon on local irc, doing so will affect anonymity
+    --nick <name> # change the server name to irc.<name>.tld, doing so will affect anonymity
+
+Log flags:
+
+    --log debug   # spew out debug messages including raw log to stdout
+    --log info    # less verbose log
+    --log warn    # default log verbosity
+    --log error   # least verbose log verbosity
 
 
 active hubs:
 
-* see [this](https://github.com/JosephSWilliams/urcd/tree/master/db/urchub) repo
+* i2p.rocks:6789
+* psii2p655trtnvru.onion:6789
+* aq3ihmrjho3xqwbudzyioszdhrt6n6yox5kw3mwqkoy7it37b7ia.b32.i2p:6789
+* also see [this](https://github.com/JosephSWilliams/urcd/tree/master/db/urchub) repo
 
 "active" channels:
 
