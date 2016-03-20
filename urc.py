@@ -319,7 +319,7 @@ class urc_hub_connection:
     @asyncio.coroutine
     def _read_data(self, pktlen):
         data = yield from self.r.readexactly(pktlen)
-        self.log.info('data={}'.format([data]))
+        self.log.debug('data={}'.format([data]))
         return data
 
     def close(self):
