@@ -307,14 +307,20 @@ class urc_hub_connection:
 
     @asyncio.coroutine
     def _read_hdr(self):
-        raw = yield from self.r.readexactly(26)
-        pktlen = struct.unpack('!H', raw[:2])[0]
-        self.log.debug('read packet len={}'.format(pktlen))
-        tsec, tnano = taia96n_parse(raw[2:14])
-        self.log.debug('packet time {}'.format(tsec))
-        pkttype = struct.unpack('!H', raw[14:16])[0]
-        self.log.debug('pkttype={}'.format(pkttype))
-        return raw, pktlen, tsec, tnano, pkttype
+        try:
+            raw = yield from self.r.readexactly(26)
+        except:
+            self.close()
+            self.urcd.disconnected(self)
+        else:
+            pktlen = struct.unpack('!H', raw[:2])[0]
+            self.log.debug('read packet len={}'.format(pktlen))
+            tsec, tnano = taia96n_parse(raw[2:14])
+            self.log.debug('packet time {}'.format(tsec))
+            pkttype = struct.unpack('!H', raw[14:16])[0]
+            self.log.debug('pkttype={}'.format(pkttype))
+            return raw, pktlen, tsec, tnano, pkttype
+
 
     @asyncio.coroutine
     def _read_data(self, pktlen):
