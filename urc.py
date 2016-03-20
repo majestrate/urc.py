@@ -746,8 +746,6 @@ class IRCD:
         tell appropriate users that a user quit
         """   
 
-        line = ':{}!{}@{} QUIT :quit\n'.format(con.nick, con.user, self.name)
-        self.urcd.broadcast(line)
         # find all users in every chan they are in
         # give them a quit message from this user
         users = list()
@@ -756,8 +754,6 @@ class IRCD:
             _chan = self.irc_chans[chan]
             if con.nick in _chan:
                 _chan.pop(con.nick)
-        # inform users of quit
-        self.inform_chans_for_user(con, line)
 
 
     def disconnected(self, con):
