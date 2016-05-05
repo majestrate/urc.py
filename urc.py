@@ -473,6 +473,7 @@ class irc_handler:
         """
         line = line.decode('utf-8')
         line = filter_urcline(line)
+        line = line.replace("\r\n", "\n")
         self.log.debug(' --> %s' %[line])
         _nick = irc_parse_nick(line)
         _user = irc_parse_user(line)
