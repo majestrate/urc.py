@@ -616,7 +616,7 @@ class irc_handler:
                         for con in self.daemon.irc_cons:
                             if con.nick == dest:
                                 asyncio.async(con.send_line(line))
-                                return
+                                # don't stop propagation 
                 self.daemon.broadcast(line)
         else:
             if self.nick is not None and self.user is not None:
