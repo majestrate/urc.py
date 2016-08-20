@@ -519,7 +519,7 @@ class irc_handler:
             for c in self.daemon.irc_chans:
                 chan = self.daemon.irc_chans[c]
                 if irc_is_chan(c) and len(chan) > 0:
-                    lines.append(':{} 322 {} {} {} :URCD\n'.format(self.daemon.name, self.nick, c, len(chan)))
+                    lines.append(':{} 322 {} {} {} :{}\n'.format(self.daemon.name, self.nick, c, 9000 + randint(10, 100), "URC RELAY CHAT"))
             lines.append(':{} 323 {} :RPL_LISTEND\n'.format(self.daemon.name, self.nick))
             asyncio.async(self.send_lines(lines))
         # PING
@@ -616,7 +616,7 @@ class irc_handler:
                         for con in self.daemon.irc_cons:
                             if con.nick == dest:
                                 asyncio.async(con.send_line(line))
-                                return
+                                # don't stop propagation 
                 self.daemon.broadcast(line)
         else:
             if self.nick is not None and self.user is not None:
