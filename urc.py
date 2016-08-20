@@ -141,7 +141,7 @@ def irc_is_chan(chan):
     return False
 
 def _irc_re_parse(regex, line):
-    m = re.match(regex, line)
+    m = re.match(regex, line.upper())
     if m:
         return m.groups()
 
