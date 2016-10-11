@@ -80,6 +80,7 @@ _RE_PRIVMSG_CMD = '^PRIVMSG (%s|%s) :?(.+)$' % (_RE_NICK, _RE_CHAN)
 _RE_JOIN_CMD = '^JOIN (%s)' % _RE_CHAN
 _RE_JOIN_MULTI_CMD = '^JOIN :?(.+)' 
 _RE_PART_CMD = '^PART (%s) :?(.+)$' % _RE_CHAN
+_RE_TOPIC_CMD = '^TOPIC (%s) :?(.+)$' % _RE_CHAN
 _RE_QUIT_CMD = '^QUIT (.+)$'
 _RE_LIST_CMD = '^(LIST)'
 _RE_PING_CMD = '^PING (.*)$' 
@@ -161,6 +162,7 @@ irc_parse_pong = lambda line : _irc_re_parse(_RE_PONG_CMD, line)
 irc_parse_list = lambda line : _irc_re_parse(_RE_LIST_CMD, line)
 irc_parse_mode = lambda line : _irc_re_parse(_RE_MODE_CMD, line)
 irc_parse_who = lambda line : _irc_re_parse(_RE_WHO_CMD, line)
+irc_parse_topic = lambda line : _irc_re_parse(_RE_TOPIC_CMD, line)
 
 def irc_greet(serv, nick, user, motd):
     """
@@ -371,6 +373,7 @@ class irc_handler:
         self._last_ping = time.time()
         self._pings = dict()
         inject_log(self)
+        self._id = daemon.randnick()
         asyncio.async(self.send_line('PING :{}\n'.format(self._pong)))
         asyncio.async(self._get_line())
 
@@ -423,6 +426,7 @@ class irc_handler:
         """
         if self.w is None:
             return
+        line = line.upper()
         self.w.write(line.encode('utf-8'))
         self.log.debug(' <-- {}'.format(line))
         try:
@@ -437,6 +441,7 @@ class irc_handler:
         """
         _lines = list()
         for line in lines:
+            line = line.upper()
             _lines.append(line.encode('utf-8'))
             self.log.debug(' <-- {}'.format(line))
         self.w.writelines(_lines)
@@ -489,7 +494,7 @@ class irc_handler:
         _who = irc_parse_who(line)
         _away_on = irc_parse_away_on(line)
         _away_off = irc_parse_away_off(line)
-
+        _topic = irc_parse_topic(line)
 
         if _away_on:
             asyncio.async(self.send_line(':{} 306 {} :RPL_UNAWAY\n'.format(self.daemon.name, self.nick)))
@@ -508,6 +513,7 @@ class irc_handler:
                                                                                      self.nick, self.nick))
             lines.append((':{} 315 {} {} :RPL_ENDOFWHO\n'.format(self.daemon.name, self.nick, _who[0])))
             asyncio.async(self.send_lines(lines))
+
         # MODE
         if _mode:
             asyncio.async(self.send_line(':{} 324 {} {} +n\n'.format(self.daemon.name, self.nick, _mode[0])))
@@ -544,7 +550,7 @@ class irc_handler:
         # NICK
         if self.nick is None and _nick is not None:
             if self.daemon.anon:
-                self.nick = 'anon'
+                self.nick = self.daemon.randnick()
             else:
                 _nick = self.daemon.filter_nick(_nick[0])
                 self.nick = _nick
@@ -555,7 +561,7 @@ class irc_handler:
         # USER
         if self.user is None and _user is not None:
             if self.daemon.anon:
-                self.user = 'anon'
+                self.user = self.daemon.randnick()
             else:
                 self.user = _user[0]
         
@@ -581,31 +587,26 @@ class irc_handler:
                 self.daemon.joined(self, chan)
                 self.daemon.activity(self.nick, chan)
                 lines = list()
-                for user in self.daemon.irc_cons:
-                    if chan in user.chans:
-                        lines.append(':{} 353 {} = {} :{}\n'.format(self.daemon.name, self.nick, chan, user.nick))
-                if chan in self.daemon.irc_chans[chan]:
-                    for user in self.daemon.irc_chans[chan]:
-                        match = irc_parse_nick_user_serv(user)
-                        if match:
-                            nick = match[0]
-                            lines.append(':{} 353 {} = {} :{}\n'.format(self.daemon.name, self.nick, chan, nick))
-
-                lines.append(':{} 366 {} {} :RPL_ENDOFNAMES\n'.format(self.daemon.name, self.nick, chan))
-                
+                n = self.nick
+                lines.append(':{} 353 {} = {} :{}n'.format(self.daemon.name, n, chan, n))
+                lines.append(':{} 366 {} {} :RPL_ENDOFNAMES\n'.format(self.daemon.name, self.nick, chan))                
                 asyncio.async(self.send_lines(lines))
-                
+
+            if _topic and _topic[1] in self.chans:
+                self.daemon.inform_chans_for_user(self, ":{}!{}@{} TOPIC {} :{}\n".format(self.nick, self.user, self.daemon.name, chan, _topic[2]))
             # PART
             if _part and _part in self.chans:
                 self.chans.remove(_part)
-                line = ':{}!{}@{} PART {}\n'.format(self.nick, self.user, self.daemon.name, chan)
+                nick = self.daemon.anon and 'anon' or self.nick
+                line = ':{}!anon@{} PART {}\n'.format(nick,  self.daemon.name, chan)
                 asyncio.async(self.send_line(line))
             
             # PRVIMSG
             if _privmsg:
                 dest, msg = _privmsg
-                self.daemon.activity(self.nick, dest)
-                line = ':{}!{}@{} PRIVMSG {} :{}\n'.format(self.nick, self.user, 
+                nick = self.daemon.anon and 'anon' or self.nick
+                self.daemon.activity(nick, dest)
+                line = ':{}!anon@{} PRIVMSG {} :{}\n'.format(nick, 
                                                            self.daemon.name, dest, msg)
                 if irc_is_chan(dest):
                     self.daemon.inform_chans_for_user(self, line)
@@ -703,11 +704,15 @@ class IRCD:
         """
         a user has joined a channel
         """
-        line = ':{}!{}@{} JOIN :{}\n'.format(con.nick, con.user, self.name, chan)
+        asyncio.async(con.send_line(':{}!anon@{} JOIN :{}\n'.format(con.nick, self.name, chan)))
+        n = self.anon and 'anon' or con.nick
+        line = ':{}!anon@{} JOIN :{}\n'.format(n, self.name, chan)
         for user in self.irc_cons:
+            if user.nick == con.nick:
+                continue
             if chan in user.chans:
                 asyncio.async(user.send_line(line))
-            
+        asyncio.async(con.send_line(":{} NOTICE {} :THIS CHANNEL MAY LOOK EMPTY BUT IT IS NOT :-DDDD\n".format(self.name, chan)))
 
     def has_nick(self, nick):
         """
@@ -745,8 +750,8 @@ class IRCD:
         for con in self.irc_cons:
             if con == user:
                 continue
-            for chan in user.chans:
-                if chan in con.chans:
+            for chan in con.chans:
+                if chan in user.chans:
                     asyncio.async(con.send_line(line))
                     break
 
