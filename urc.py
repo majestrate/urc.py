@@ -826,7 +826,11 @@ class IRCD:
             # PRIVMSG
             if cmd == 'PRIVMSG' and _nick:
                 self.activity(_nick, _chan)
-
+                nick = self.anon and 'anon' or _nick
+                # inform channel
+                for conn in self.irc_cons:
+                    if _chan in conn.chans:
+                        asyncio.async(conn.send_line(':{}!anon@{} PRIVMSG {} :{}'.format(nick, self.name, _chan, msg)))
 
 
         if _nick:
