@@ -422,13 +422,14 @@ class irc_handler:
             self.daemon.inform_chans_for_user(self, line)
 
     @asyncio.coroutine
-    def send_line(self, line):
+    def send_line(self, line, upper=True):
         """
         send a single line
         """
         if self.w is None:
             return
-        line = line.upper()
+        if upper:
+            line = line.upper()
         self.w.write(line.encode('utf-8'))
         self.log.debug(' <-- {}'.format(line))
         try:
@@ -536,7 +537,7 @@ class irc_handler:
                 _ping = ':{}'.format( _ping[0] )
             else:
                 _ping = _ping[0]
-            asyncio.async(self.send_line(':{} PONG {}\n'.format(self.daemon.name, _ping)))
+            asyncio.async(self.send_line(':{} PONG {}\n'.format(self.daemon.name, _ping), False))
         # PONG
         if _pong:
             if _pong[0][0] == ':':
@@ -589,7 +590,7 @@ class irc_handler:
                 self.daemon.joined(self, chan)
                 self.daemon.activity(self.nick, chan)
                 lines = list()
-                n = self.nick
+                n = self.daemon.anon and 'anon' or conn.nick
                 lines.append(':{} 353 {} = {} :{}n'.format(self.daemon.name, n, chan, n))
                 lines.append(':{} 366 {} {} :RPL_ENDOFNAMES\n'.format(self.daemon.name, self.nick, chan))
                 asyncio.async(self.send_lines(lines))
