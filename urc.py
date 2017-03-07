@@ -794,6 +794,7 @@ class IRCD:
         """
         update the state of the ircd from a remote line
         """
+        src = self.anon and 'anon!anon@{}'.format(self.name) or src
         if msg is None:
             line = ':{} {} {}\n'.format(src, cmd, dst)
         elif dst is None:
@@ -812,25 +813,22 @@ class IRCD:
 
         if _chan is None:
             _nick = dst
-        self.log.debug((_chan, _nick, line))
+        self.log.debug((_chan, _nick, msg))
 
         nick, user, serv = irc_parse_nick_user_serv(src) or None, None, None
 
-        if _chan and _nick:
+        if _chan and nick:
             # for LIST
             if _chan not in self.irc_chans:
                 self.irc_chans[_chan] = dict()
             # JOIN
-            if cmd == 'JOIN' and _nick not in self.irc_chans[_chan]:
-                self.activity(_nick, _chan)
+            if cmd == 'JOIN' and nick not in self.irc_chans[_chan]:
+                self.activity(nick, _chan)
             # PRIVMSG
-            if cmd == 'PRIVMSG' and _nick:
-                self.activity(_nick, _chan)
-                nick = self.anon and 'anon' or _nick
-                # inform channel
-                for conn in self.irc_cons:
-                    if _chan in conn.chans:
-                        asyncio.async(conn.send_line(':{}!anon@{} PRIVMSG {} :{}'.format(nick, self.name, _chan, msg)))
+            if cmd == 'PRIVMSG' and nick:
+                self.activity(nick, _chan)
+                _chan = _chan.upper()
+                nick = self.anon and 'anon' or nick
 
 
         if _nick:
