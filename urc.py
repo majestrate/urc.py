@@ -591,7 +591,7 @@ class irc_handler:
                 self.daemon.activity(self.nick, chan)
                 lines = list()
                 n = self.daemon.anon and 'anon' or conn.nick
-                lines.append(':{} 353 {} = {} :{}n'.format(self.daemon.name, n, chan, n))
+                lines.append(':{} 353 {} = {} :{}\n'.format(self.daemon.name, n, chan, n))
                 lines.append(':{} 366 {} {} :RPL_ENDOFNAMES\n'.format(self.daemon.name, self.nick, chan))
                 asyncio.async(self.send_lines(lines))
 
@@ -1344,6 +1344,7 @@ def main():
     ap.add_argument('--sign',type=str, default='no')
     ap.add_argument('--name', type=str, default='urc.py')
     ap.add_argument('--no-anon', action='store_const', const=True, default=False)
+    ap.add_argument('--ircd-config', type=str, default=None)
 
     args = ap.parse_args()
 
