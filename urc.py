@@ -80,6 +80,7 @@ _RE_PRIVMSG_CMD = '^PRIVMSG (%s|%s) :?(.+)$' % (_RE_NICK, _RE_CHAN)
 _RE_JOIN_CMD = '^JOIN (%s)' % _RE_CHAN
 _RE_JOIN_MULTI_CMD = '^JOIN :?(.+)'
 _RE_PART_CMD = '^PART (%s) :?(.+)$' % _RE_CHAN
+_RE_PART_SIMPLE_CMD = '^PART (%s)$' % _RE_CHAN
 _RE_TOPIC_CMD = '^TOPIC (%s) :?(.+)$' % _RE_CHAN
 _RE_QUIT_CMD = '^QUIT (.+)$'
 _RE_LIST_CMD = '^(LIST)'
@@ -158,6 +159,7 @@ irc_parse_privmsg = lambda line : _irc_re_parse(_RE_PRIVMSG_CMD, line)
 irc_parse_join = lambda line : _irc_re_parse(_RE_JOIN_CMD, line)
 irc_parse_multi_join = lambda line : _irc_re_parse(_RE_JOIN_MULTI_CMD, line)
 irc_parse_part = lambda line : _irc_re_parse(_RE_PART_CMD, line)
+irc_parse_part_simple = lambda line : _irc_re_parse(_RE_PART_SIMPLE_CMD, line)
 irc_parse_quit = lambda line : _irc_re_parse(_RE_QUIT_CMD, line)
 irc_parse_ping = lambda line : _irc_re_parse(_RE_PING_CMD, line, False)
 irc_parse_pong = lambda line : _irc_re_parse(_RE_PONG_CMD, line, False)
@@ -489,6 +491,7 @@ class irc_handler:
         _joins = irc_parse_multi_join(line)
         _list = irc_parse_list(line)
         _part = irc_parse_part(line)
+        _part_simple = irc_parse_part_simple(line)
         _quit = irc_parse_quit(line)
         _privmsg = irc_parse_privmsg(line)
         _ping = irc_parse_ping(line)
@@ -598,8 +601,11 @@ class irc_handler:
             if _topic and _topic[1] in self.chans:
                 self.daemon.inform_chans_for_user(self, ":{}!{}@{} TOPIC {} :{}\n".format(self.nick, self.user, self.daemon.name, chan, _topic[2]))
             # PART
-            if _part:
-                chan = _part[0]
+            if _part or _part_simple:
+                if _part_simple:
+                    chan = _part_simple[0]
+                else:
+                    chan = _part[0]
                 if chan in self.chans:
                     self.chans.remove(chan)
                     nick = self.nick
