@@ -598,11 +598,13 @@ class irc_handler:
             if _topic and _topic[1] in self.chans:
                 self.daemon.inform_chans_for_user(self, ":{}!{}@{} TOPIC {} :{}\n".format(self.nick, self.user, self.daemon.name, chan, _topic[2]))
             # PART
-            if _part and _part in self.chans:
-                self.chans.remove(_part)
-                nick = self.nick
-                line = ':{}!anon@{} PART {}\n'.format(nick,  self.daemon.name, chan)
-                asyncio.async(self.send_line(line))
+            if _part:
+                chan = _part[0]
+                if chan in self.chans:
+                    self.chans.remove(chan)
+                    nick = self.nick
+                    line = ':{}!anon@{} PART {}\n'.format(nick,  self.daemon.name, chan)
+                    asyncio.async(self.send_line(line))
 
             # PRVIMSG
             if _privmsg:
@@ -1336,7 +1338,7 @@ def main():
     ap.add_argument('--no-socks', action='store_const', const=True, default=False)
     ap.add_argument('--socks-host', type=str, default='127.0.0.1')
     ap.add_argument('--socks-port', type=str, default=9150)
-    ap.add_argument('--remote-hub', type=str, default='psii2p655trtnvru.onion')
+    ap.add_argument('--remote-hub', type=str, default='allyour4nert7pkh.onion')
     ap.add_argument('--remote-hub-port', type=int, default=6789)
     ap.add_argument('--hubs-file', type=str, default=None)
     ap.add_argument('--hub', type=str, default='127.0.0.1')
