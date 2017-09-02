@@ -600,7 +600,7 @@ class irc_handler:
             # PART
             if _part and _part in self.chans:
                 self.chans.remove(_part)
-                nick = self.daemon.anon and 'anon' or self.nick
+                nick = self.nick
                 line = ':{}!anon@{} PART {}\n'.format(nick,  self.daemon.name, chan)
                 asyncio.async(self.send_line(line))
 
